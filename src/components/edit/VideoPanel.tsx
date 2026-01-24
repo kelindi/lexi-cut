@@ -11,37 +11,16 @@ export function VideoPanel() {
   const segments = useTimelineSegments();
   const totalFrames = calculateTotalFrames(segments);
 
-  // Extract unique source paths
-  const sourcePaths = useMemo(() => {
-    return [...new Set(segments.map((seg) => seg.sourcePath))];
-  }, [segments]);
-
-  // Fetch video URLs from the local server
-  const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
-  const [urlsLoading, setUrlsLoading] = useState(false);
-
-  useEffect(() => {
-    if (sourcePaths.length === 0) {
-      setVideoUrls({});
-      return;
+  // Build video URLs synchronously using asset protocol
+  const videoUrls = useMemo(() => {
+    const urls: Record<string, string> = {};
+    for (const seg of segments) {
+      if (!urls[seg.sourcePath]) {
+        urls[seg.sourcePath] = getVideoUrl(seg.sourcePath);
+      }
     }
-
-    setUrlsLoading(true);
-    Promise.all(
-      sourcePaths.map(async (path) => {
-        const url = await getVideoUrl(path);
-        return [path, url] as const;
-      })
-    )
-      .then((entries) => {
-        setVideoUrls(Object.fromEntries(entries));
-        setUrlsLoading(false);
-      })
-      .catch((err) => {
-        console.error("Failed to get video URLs:", err);
-        setUrlsLoading(false);
-      });
-  }, [sourcePaths.join(",")]);
+    return urls;
+  }, [segments]);
 
   // Only subscribe to what we need - NOT currentFrame (causes 30fps re-renders)
   const isPlaying = usePlaybackStore((s) => s.isPlaying);
@@ -119,14 +98,6 @@ export function VideoPanel() {
     return (
       <div className="flex h-full items-center justify-center text-neutral-500">
         No segments to preview
-      </div>
-    );
-  }
-
-  if (urlsLoading || Object.keys(videoUrls).length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-neutral-500">
-        Loading videos...
       </div>
     );
   }
