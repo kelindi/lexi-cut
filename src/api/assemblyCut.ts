@@ -1,6 +1,6 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type {
-  Segment,
+  Word,
   SegmentGroup,
   AssemblyCutRequest,
   AssemblyCutResult,
@@ -40,28 +40,28 @@ Response JSON schema:
   "narrativeSummary": string
 }`;
 
-export function groupSegments(
-  segments: Segment[],
+export function groupWordsForAssembly(
+  words: Word[],
   maxWordsPerGroup: number = 8
 ): SegmentGroup[] {
   const groups: SegmentGroup[] = [];
-  let currentGroup: Segment[] = [];
+  let currentGroup: Word[] = [];
   let currentSourceId: string | null = null;
 
   function flushGroup() {
     if (currentGroup.length === 0) return;
 
     const sourceId = currentSourceId!;
-    const segmentIds = currentGroup.map((s) => s.id);
-    const texts = currentGroup.map((s) => s.text!.word);
-    const confidences = currentGroup.map((s) => s.text!.confidence);
-    const starts = currentGroup.map((s) => s.text!.start);
-    const ends = currentGroup.map((s) => s.text!.end);
+    const wordIds = currentGroup.map((w) => w.id);
+    const texts = currentGroup.map((w) => w.word);
+    const confidences = currentGroup.map((w) => w.confidence);
+    const starts = currentGroup.map((w) => w.start);
+    const ends = currentGroup.map((w) => w.end);
 
     groups.push({
       groupId: `group-${groups.length}`,
       sourceId,
-      segmentIds,
+      segmentIds: wordIds,  // Note: these are word IDs (legacy field name)
       text: texts.join(" "),
       startTime: Math.min(...starts),
       endTime: Math.max(...ends),
@@ -72,23 +72,20 @@ export function groupSegments(
     currentGroup = [];
   }
 
-  for (const segment of segments) {
-    if (!segment.text) continue;
-
-    const segSourceId = segment.text.sourceId;
+  for (const word of words) {
+    const wordSourceId = word.sourceId;
 
     // Flush if source changes
-    if (currentSourceId !== null && segSourceId !== currentSourceId) {
+    if (currentSourceId !== null && wordSourceId !== currentSourceId) {
       flushGroup();
     }
 
-    currentSourceId = segSourceId;
-    currentGroup.push(segment);
+    currentSourceId = wordSourceId;
+    currentGroup.push(word);
 
     // Flush if we hit a sentence boundary or max group size
-    const word = segment.text.word;
     if (
-      SENTENCE_ENDINGS.test(word) ||
+      SENTENCE_ENDINGS.test(word.word) ||
       currentGroup.length >= maxWordsPerGroup
     ) {
       flushGroup();

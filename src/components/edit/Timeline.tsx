@@ -17,8 +17,8 @@ export function Timeline() {
   const totalFrames = useTotalDuration();
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const seekToFrame = usePlaybackStore((s) => s.seekToFrame);
-  const selectedBlockId = useSelectionStore((s) => s.selectedBlockId);
-  const selectBlock = useSelectionStore((s) => s.selectBlock);
+  const selectedSentenceId = useSelectionStore((s) => s.selectedSentenceId);
+  const selectSentence = useSelectionStore((s) => s.selectSentence);
 
   // Build source → color mapping
   const sourceColors = new Map<string, string>();
@@ -39,11 +39,11 @@ export function Timeline() {
 
   const handleSegmentClick = (
     e: React.MouseEvent,
-    groupId: string,
+    sentenceId: string,
     startFrame: number
   ) => {
     e.stopPropagation();
-    selectBlock(groupId);
+    selectSentence(sentenceId);
     seekToFrame(startFrame);
   };
 
@@ -70,11 +70,11 @@ export function Timeline() {
         {segments.map((seg) => {
           const left = (seg.startFrame / totalFrames) * 100;
           const width = (seg.durationFrames / totalFrames) * 100;
-          const isSelected = selectedBlockId === seg.groupId;
+          const isSelected = selectedSentenceId !== null && seg.sentenceIds.includes(selectedSentenceId);
 
           return (
             <div
-              key={seg.groupId}
+              key={seg.sentenceIds.join("-")}
               className={`absolute top-0 h-full transition-opacity ${
                 isSelected ? "ring-1 ring-white" : "hover:opacity-80"
               }`}
@@ -83,7 +83,7 @@ export function Timeline() {
                 width: `${width}%`,
                 backgroundColor: sourceColors.get(seg.sourceId) || COLORS[0],
               }}
-              onClick={(e) => handleSegmentClick(e, seg.groupId, seg.startFrame)}
+              onClick={(e) => handleSegmentClick(e, seg.sentenceIds[0], seg.startFrame)}
               title={seg.text.slice(0, 50) + (seg.text.length > 50 ? "..." : "")}
             />
           );

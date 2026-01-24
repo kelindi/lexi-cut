@@ -19,9 +19,12 @@ export function EditPage() {
   const setPhase = useProjectStore((s) => s.setPhase);
   const setProgress = useProjectStore((s) => s.setProgress);
   const setError = useProjectStore((s) => s.setError);
-  const setSegments = useProjectStore((s) => s.setSegments);
+  const setWords = useProjectStore((s) => s.setWords);
   const setSegmentGroups = useProjectStore((s) => s.setSegmentGroups);
   const setOrderedGroupIds = useProjectStore((s) => s.setOrderedGroupIds);
+  const setSentences = useProjectStore((s) => s.setSentences);
+  const setTranscriptlessSourceIds = useProjectStore((s) => s.setTranscriptlessSourceIds);
+  const transcriptlessSourceIds = useProjectStore((s) => s.transcriptlessSourceIds);
 
   const { exportVideo, isExporting, canExport } = useExport();
 
@@ -47,9 +50,11 @@ export function EditPage() {
         }
       });
 
-      setSegments(result.segments);
+      setWords(result.words);
       setSegmentGroups(result.segmentGroups);
       setOrderedGroupIds(result.orderedGroupIds);
+      setSentences(result.sentences);
+      setTranscriptlessSourceIds(result.transcriptlessSourceIds);
       setPhase("ready");
       setProgress(null);
     } catch (e) {
@@ -60,9 +65,11 @@ export function EditPage() {
     setPhase,
     setProgress,
     setError,
-    setSegments,
+    setWords,
     setSegmentGroups,
     setOrderedGroupIds,
+    setSentences,
+    setTranscriptlessSourceIds,
   ]);
 
   // Auto-run pipeline when sources change and we don't have results
@@ -74,6 +81,11 @@ export function EditPage() {
 
   const isReady = phase === "ready" && segmentGroups.length > 0;
   const isProcessing = phase !== "idle" && phase !== "ready" && phase !== "error";
+
+  // Determine if all sources are transcriptless (no transcript panel needed)
+  const isFullyTranscriptless =
+    transcriptlessSourceIds.length > 0 &&
+    transcriptlessSourceIds.length === sources.length;
 
   return (
     <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden bg-[#0a0a0a]">
@@ -103,23 +115,25 @@ export function EditPage() {
           </div>
         ) : isReady ? (
           <>
-            {/* Transcript panel (left) */}
-            <div className="w-2/3 border-r border-neutral-800 overflow-hidden">
-              <div className="h-full flex flex-col">
-                <div className="border-b border-neutral-800 px-4 py-2">
-                  <span className="text-xs font-medium uppercase text-neutral-500">
-                    Transcript
-                  </span>
-                </div>
-                <div className="flex-1 min-h-0">
-                  <TranscriptPanel />
+            {/* Transcript panel (left) - hidden when fully transcriptless */}
+            {!isFullyTranscriptless && (
+              <div className="w-2/3 border-r border-neutral-800 overflow-hidden">
+                <div className="h-full flex flex-col">
+                  <div className="border-b border-neutral-800 px-4 py-2">
+                    <span className="text-xs font-medium uppercase text-neutral-500">
+                      Transcript
+                    </span>
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    <TranscriptPanel />
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Video panel (right) */}
-            <div className="w-1/3 overflow-hidden">
-              <div className="h-full flex flex-col">
+            {/* Video panel (right, or full width if transcriptless) */}
+            <div className={isFullyTranscriptless ? "flex-1" : "w-1/3"}>
+              <div className="h-full flex flex-col overflow-hidden">
                 <div className="border-b border-neutral-800 px-4 py-2">
                   <span className="text-xs font-medium uppercase text-neutral-500">
                     Preview

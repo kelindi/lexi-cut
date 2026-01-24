@@ -1,19 +1,31 @@
 import { create } from "zustand";
 import type {
-  Segment,
+  Word,
   SegmentGroup,
+  Sentence,
   ProcessingPhase,
   ProcessingProgress,
 } from "../types";
 
 interface ProjectState {
   // Raw data
-  segments: Segment[];
+  words: Word[];
   segmentGroups: SegmentGroup[];
+  sentences: Sentence[];
 
-  // Editable timeline (the "screenplay")
+  // Editable timeline (the "screenplay") - sentence-level ordering
+  orderedSentenceIds: string[];
+  excludedSentenceIds: string[];
+
+  // Word-level exclusions (for trimming individual words)
+  excludedWordIds: string[];
+
+  // Sources without transcripts (silent/no audio)
+  transcriptlessSourceIds: string[];
+
+  // Legacy group ordering (kept for backward compatibility during transition)
   orderedGroupIds: string[];
-  excludedGroupIds: string[]; // Using array for JSON serialization
+  excludedGroupIds: string[];
 
   // Processing state
   phase: ProcessingPhase;
@@ -21,8 +33,17 @@ interface ProjectState {
   error: string | null;
 
   // Actions
-  setSegments: (segments: Segment[]) => void;
+  setWords: (words: Word[]) => void;
   setSegmentGroups: (groups: SegmentGroup[]) => void;
+  setSentences: (sentences: Sentence[]) => void;
+  setOrderedSentenceIds: (ids: string[]) => void;
+  reorderSentences: (fromIndex: number, toIndex: number) => void;
+  excludeSentence: (id: string) => void;
+  restoreSentence: (id: string) => void;
+  toggleWordExclusion: (wordId: string) => void;
+  // Transcriptless tracking
+  setTranscriptlessSourceIds: (sourceIds: string[]) => void;
+  // Legacy group actions (kept for backward compatibility)
   setOrderedGroupIds: (ids: string[]) => void;
   excludeGroup: (id: string) => void;
   restoreGroup: (id: string) => void;
@@ -35,8 +56,13 @@ interface ProjectState {
 }
 
 const initialState = {
-  segments: [],
+  words: [],
   segmentGroups: [],
+  sentences: [],
+  orderedSentenceIds: [],
+  excludedSentenceIds: [],
+  excludedWordIds: [],
+  transcriptlessSourceIds: [] as string[],
   orderedGroupIds: [],
   excludedGroupIds: [],
   phase: "idle" as ProcessingPhase,
@@ -47,7 +73,7 @@ const initialState = {
 export const useProjectStore = create<ProjectState>((set) => ({
   ...initialState,
 
-  setSegments: (segments) => set({ segments }),
+  setWords: (words) => set({ words }),
 
   setSegmentGroups: (groups) =>
     set({
@@ -55,6 +81,45 @@ export const useProjectStore = create<ProjectState>((set) => ({
       orderedGroupIds: groups.map((g) => g.groupId),
     }),
 
+  // Sentence actions
+  setSentences: (sentences) =>
+    set({
+      sentences,
+      orderedSentenceIds: sentences.map((s) => s.sentenceId),
+    }),
+
+  setOrderedSentenceIds: (ids) => set({ orderedSentenceIds: ids }),
+
+  reorderSentences: (fromIndex, toIndex) =>
+    set((state) => {
+      const newOrder = [...state.orderedSentenceIds];
+      const [removed] = newOrder.splice(fromIndex, 1);
+      newOrder.splice(toIndex, 0, removed);
+      return { orderedSentenceIds: newOrder };
+    }),
+
+  excludeSentence: (id) =>
+    set((state) => ({
+      excludedSentenceIds: [...state.excludedSentenceIds, id],
+    })),
+
+  restoreSentence: (id) =>
+    set((state) => ({
+      excludedSentenceIds: state.excludedSentenceIds.filter((sid) => sid !== id),
+    })),
+
+  // Word-level exclusion (toggle)
+  toggleWordExclusion: (wordId) =>
+    set((state) => ({
+      excludedWordIds: state.excludedWordIds.includes(wordId)
+        ? state.excludedWordIds.filter((id) => id !== wordId)
+        : [...state.excludedWordIds, wordId],
+    })),
+
+  // Transcriptless tracking
+  setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds }),
+
+  // Legacy group actions
   setOrderedGroupIds: (ids) => set({ orderedGroupIds: ids }),
 
   excludeGroup: (id) =>
@@ -103,3 +168,16 @@ export const useActiveGroups = () =>
 
 export const useGroupById = (id: string) =>
   useProjectStore((state) => state.segmentGroups.find((g) => g.groupId === id));
+
+// Sentence selector helpers
+export const useActiveSentences = () =>
+  useProjectStore((state) => {
+    const excluded = new Set(state.excludedSentenceIds);
+    return state.orderedSentenceIds
+      .filter((id) => !excluded.has(id))
+      .map((id) => state.sentences.find((s) => s.sentenceId === id)!)
+      .filter(Boolean);
+  });
+
+export const useSentenceById = (id: string) =>
+  useProjectStore((state) => state.sentences.find((s) => s.sentenceId === id));

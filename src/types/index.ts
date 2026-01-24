@@ -11,39 +11,20 @@ export interface Source {
 
 // --- Project Data Model ---
 
-export interface TextLayer {
+// Single transcribed word with timing
+export interface Word {
+  id: string;
   word: string;
+  start: number;
+  end: number;
   confidence: number;
   sourceId: string;
-  start: number;
-  end: number;
-}
-
-export interface VideoLayer {
-  sourceId: string;
-  start: number;
-  end: number;
-}
-
-export interface AudioLayer {
-  sourceId: string;
-  start: number;
-  end: number;
-  volume: number;
-}
-
-export interface Segment {
-  id: string;
-  description?: string;
-  text?: TextLayer;
-  video?: VideoLayer;
-  audio?: AudioLayer;
 }
 
 export interface Project {
   id: string;
   sources: Source[];
-  timeline: Segment[];
+  timeline: Word[];
 }
 
 // --- ElevenLabs Scribe v2 API Response ---
@@ -75,6 +56,18 @@ export interface SegmentGroup {
   startTime: number;
   endTime: number;
   avgConfidence: number;
+}
+
+// --- Sentence (first-class reorderable unit) ---
+
+export interface Sentence {
+  sentenceId: string;
+  sourceId: string;
+  wordIds: string[];         // Words in this sentence
+  text: string;
+  startTime: number;
+  endTime: number;
+  originalGroupId?: string;  // For optional visual grouping
 }
 
 export interface DuplicateGroup {
@@ -125,10 +118,11 @@ export interface DescriptionProgress {
   total: number;
 }
 
-// --- Timeline Segment for Remotion ---
+// --- Segment (continuous video chunk from same source) ---
 
-export interface TimelineSegment {
-  groupId: string;
+export interface Segment {
+  id: string;
+  sentenceIds: string[]; // One or more sentences merged into this segment
   sourceId: string;
   sourcePath: string;
   sourceStart: number; // seconds into source video

@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
 import { SourceCard, UploadCard } from "../components";
 import { useSourcesStore } from "../stores";
 import { generateCid } from "../utils/cid";
@@ -26,13 +27,17 @@ export function AddClipsPage() {
 
     const newSources = await Promise.all(
       paths.map(async (path) => {
-        const thumbnail = await generateThumbnail(path);
+        const [thumbnail, duration] = await Promise.all([
+          generateThumbnail(path),
+          invoke<number>("get_duration", { videoPath: path }).catch(() => undefined),
+        ]);
         const name = path.split("/").pop() || path;
         return {
           id: crypto.randomUUID(),
           name,
           thumbnail,
           path,
+          duration,
         } as Source;
       }),
     );

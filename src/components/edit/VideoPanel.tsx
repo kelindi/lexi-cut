@@ -83,6 +83,29 @@ export function VideoPanel() {
     };
   }, [setCurrentFrame, playerReady]);
 
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+
+      if (e.code === "Space") {
+        e.preventDefault(); // Prevent page scroll
+        if (isPlaying) {
+          pause();
+        } else {
+          play();
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPlaying, play, pause]);
+
   const handlePlay = useCallback(() => {
     play();
   }, [play]);
@@ -141,7 +164,20 @@ export function VideoPanel() {
             showVolumeControls={false}
             clickToPlay={false}
             loop={false}
-            spaceKeyToPlayOrPause={false}
+            spaceKeyToPlayOrPause={true}
+            renderLoading={() => (
+              <div style={{
+                position: "absolute",
+                inset: 0,
+                backgroundColor: "#000",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "#666",
+              }}>
+                Loading...
+              </div>
+            )}
           />
         </div>
       </div>

@@ -1,16 +1,20 @@
 import { create } from "zustand";
 
 interface SelectionState {
-  selectedBlockId: string | null;
-
-  // Actions
-  selectBlock: (id: string | null) => void;
+  selectedSentenceId: string | null;
+  selectedWordId: string | null;
+  selectSentence: (id: string | null) => void;
+  selectWord: (id: string | null) => void;
   clearSelection: () => void;
 }
 
 export const useSelectionStore = create<SelectionState>((set) => ({
-  selectedBlockId: null,
+  selectedSentenceId: null,
+  selectedWordId: null,
 
-  selectBlock: (id) => set({ selectedBlockId: id }),
-  clearSelection: () => set({ selectedBlockId: null }),
+  selectSentence: (id) => set({ selectedSentenceId: id }),
+
+  selectWord: (id) => set({ selectedWordId: id }),
+
+  clearSelection: () => set({ selectedSentenceId: null, selectedWordId: null }),
 }));

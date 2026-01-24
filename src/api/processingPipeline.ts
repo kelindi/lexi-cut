@@ -1,8 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Segment, SegmentGroup, ProcessingProgress } from "../types";
-import { transcribeFile, mapTranscriptToSegments } from "./transcribe";
-import { groupSegments } from "./segmentGrouping";
+import type { Source, Word, SegmentGroup, Sentence, ProcessingProgress } from "../types";
+import { transcribeFile, mapTranscriptToWords } from "./transcribe";
+import { groupWords } from "./segmentGrouping";
 import { requestAssemblyCut } from "./assemblyCut";
+import { extractSentences } from "../utils/sentenceExtractor";
 
 /**
  * Ensure all sources have CIDs computed.
@@ -46,9 +47,12 @@ async function ensureSourceCids(sources: Source[]): Promise<Map<string, string>>
 }
 
 export interface PipelineResult {
-  segments: Segment[];
+  words: Word[];
   segmentGroups: SegmentGroup[];
   orderedGroupIds: string[];
+  sentences: Sentence[];
+  orderedSentenceIds: string[];
+  transcriptlessSourceIds: string[];
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
@@ -85,8 +89,9 @@ export async function runPipeline(
   sources: Source[],
   onProgress?: ProgressCallback
 ): Promise<PipelineResult> {
-  const allSegments: Segment[] = [];
+  const allWords: Word[] = [];
   const allGroups: SegmentGroup[] = [];
+  const transcriptlessSourceIds: string[] = [];
 
   // Pre-phase: Ensure all sources have CIDs for caching
   onProgress?.({
@@ -109,30 +114,35 @@ export async function runPipeline(
 
     const file = await loadFileFromPath(source.path, source.name);
     const transcript = await transcribeFile(file, cid);
-    const segments = mapTranscriptToSegments(transcript, source.id);
-    allSegments.push(...segments);
+    const words = mapTranscriptToWords(transcript, source.id);
+
+    // Track sources with no words (transcriptless)
+    if (words.length === 0) {
+      transcriptlessSourceIds.push(source.id);
+    }
+
+    allWords.push(...words);
   }
 
-  // Phase 2: Group segments by source
+  // Phase 2: Group words by source
   onProgress?.({
     current: 1,
     total: 2,
-    message: "Grouping segments...",
+    message: "Grouping words...",
   });
 
-  const segmentsBySource = new Map<string, Segment[]>();
-  for (const seg of allSegments) {
-    if (!seg.text) continue;
-    const sourceId = seg.text.sourceId;
-    if (!segmentsBySource.has(sourceId)) {
-      segmentsBySource.set(sourceId, []);
+  const wordsBySource = new Map<string, Word[]>();
+  for (const word of allWords) {
+    const sourceId = word.sourceId;
+    if (!wordsBySource.has(sourceId)) {
+      wordsBySource.set(sourceId, []);
     }
-    segmentsBySource.get(sourceId)!.push(seg);
+    wordsBySource.get(sourceId)!.push(word);
   }
 
   let groupOffset = 0;
-  for (const [sourceId, segments] of segmentsBySource) {
-    const groups = groupSegments(segments, sourceId);
+  for (const [sourceId, words] of wordsBySource) {
+    const groups = groupWords(words, sourceId);
     // Offset group IDs to be globally unique
     const prefixedGroups = groups.map((g, idx) => ({
       ...g,
@@ -140,6 +150,23 @@ export async function runPipeline(
     }));
     allGroups.push(...prefixedGroups);
     groupOffset += groups.length;
+  }
+
+  // Create fallback groups for transcriptless sources
+  for (const sourceId of transcriptlessSourceIds) {
+    const source = sources.find((s) => s.id === sourceId);
+    if (!source) continue;
+
+    const fallbackGroup: SegmentGroup = {
+      groupId: `group-${groupOffset++}`,
+      sourceId: source.id,
+      segmentIds: [],
+      text: `[${source.name}]`,
+      startTime: 0,
+      endTime: source.duration ?? 10,
+      avgConfidence: 1,
+    };
+    allGroups.push(fallbackGroup);
   }
 
   // Phase 3: Assembly cut (if multiple groups)
@@ -183,9 +210,16 @@ export async function runPipeline(
     orderedGroupIds = allGroups.map((g) => g.groupId);
   }
 
+  // Phase 4: Extract sentences from groups
+  const sentences = extractSentences(allGroups, allWords);
+  const orderedSentenceIds = sentences.map((s) => s.sentenceId);
+
   return {
-    segments: allSegments,
+    words: allWords,
     segmentGroups: allGroups,
     orderedGroupIds,
+    sentences,
+    orderedSentenceIds,
+    transcriptlessSourceIds,
   };
 }

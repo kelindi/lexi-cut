@@ -1,5 +1,5 @@
-import type { Segment, DescriptionProgress } from "../types";
-import { groupSegments } from "./segmentGrouping";
+import type { Word, DescriptionProgress } from "../types";
+import { groupWords } from "./segmentGrouping";
 import { uploadVideoFile, queryVideoTimeRange, RateLimitError } from "./gemini";
 
 const DELAY_BETWEEN_QUERIES_MS = 500;
@@ -36,31 +36,31 @@ async function queryWithRetry(
   return null;
 }
 
-export async function describeSegments(
+export async function describeWords(
   file: File,
-  segments: Segment[],
+  words: Word[],
   onProgress?: (progress: DescriptionProgress) => void
-): Promise<Segment[]> {
+): Promise<Map<string, string>> {
   // Check if API key is configured
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    return segments;
+    return new Map();
   }
 
-  // Determine sourceId from the first segment with a text layer
-  const firstTextSegment = segments.find((s) => s.text);
-  if (!firstTextSegment?.text) {
-    return segments;
+  // Determine sourceId from the first word
+  const firstWord = words[0];
+  if (!firstWord) {
+    return new Map();
   }
-  const sourceId = firstTextSegment.text.sourceId;
+  const sourceId = firstWord.sourceId;
 
   // Phase 1: Upload video
   onProgress?.({ phase: "uploading", current: 0, total: 1 });
   const { uri: fileUri, mimeType } = await uploadVideoFile(file);
 
-  // Phase 2: Group segments
+  // Phase 2: Group words
   onProgress?.({ phase: "processing", current: 0, total: 1 });
-  const groups = groupSegments(segments, sourceId);
+  const groups = groupWords(words, sourceId);
 
   // Phase 3: Query each group
   const descriptionMap = new Map<string, string>();
@@ -78,8 +78,9 @@ export async function describeSegments(
     );
 
     if (description) {
-      for (const segId of group.segmentIds) {
-        descriptionMap.set(segId, description);
+      // segmentIds holds word IDs (legacy field name)
+      for (const wordId of group.segmentIds) {
+        descriptionMap.set(wordId, description);
       }
     }
 
@@ -89,12 +90,5 @@ export async function describeSegments(
     }
   }
 
-  // Assign descriptions to segments (immutable update)
-  return segments.map((segment) => {
-    const description = descriptionMap.get(segment.id);
-    if (description) {
-      return { ...segment, description };
-    }
-    return segment;
-  });
+  return descriptionMap;
 }

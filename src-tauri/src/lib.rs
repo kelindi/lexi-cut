@@ -2,7 +2,8 @@ mod commands;
 mod services;
 
 use commands::{
-    export_video, generate_cid, generate_thumbnail, get_cached, read_file_base64, set_cached,
+    export_video, generate_cid, generate_thumbnail, get_cached, get_duration, read_file_base64,
+    set_cached,
 };
 use services::CacheDb;
 use tauri::Manager;
@@ -28,6 +29,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             generate_thumbnail,
             generate_cid,
+            get_duration,
             export_video,
             read_file_base64,
             get_cached,

@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { CircleNotch, Play } from "@phosphor-icons/react";
-import { transcribeFile, mapTranscriptToSegments } from "../../api/transcribe";
-import type { Segment, ElevenLabsTranscriptResponse } from "../../types";
+import { transcribeFile, mapTranscriptToWords } from "../../api/transcribe";
+import type { Word, ElevenLabsTranscriptResponse } from "../../types";
 
 export function TranscriptionTest() {
   const [file, setFile] = useState<File | null>(null);
-  const [segments, setSegments] = useState<Segment[]>([]);
+  const [words, setWords] = useState<Word[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawResponse, setRawResponse] = useState<ElevenLabsTranscriptResponse | null>(null);
@@ -15,15 +15,15 @@ export function TranscriptionTest() {
 
     setIsLoading(true);
     setError(null);
-    setSegments([]);
+    setWords([]);
     setRawResponse(null);
 
     try {
       const response = await transcribeFile(file);
       setRawResponse(response);
       const sourceId = file.name;
-      const mapped = mapTranscriptToSegments(response, sourceId);
-      setSegments(mapped);
+      const mapped = mapTranscriptToWords(response, sourceId);
+      setWords(mapped);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transcription failed");
     } finally {
@@ -64,23 +64,23 @@ export function TranscriptionTest() {
       {rawResponse && (
         <div className="rounded border border-neutral-800 bg-neutral-900 p-3 text-xs text-neutral-400">
           <p>Language: {rawResponse.language_code} ({(rawResponse.language_probability * 100).toFixed(1)}%)</p>
-          <p>Words: {segments.length}</p>
+          <p>Words: {words.length}</p>
           <p>ID: {rawResponse.transcription_id}</p>
         </div>
       )}
 
-      {segments.length > 0 && (
+      {words.length > 0 && (
         <div className="space-y-3">
           <div>
             <h4 className="mb-1 text-xs font-medium text-neutral-500">Full Text</h4>
             <p className="rounded border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-300">
-              {segments.map((seg) => seg.text?.word).join(" ")}
+              {words.map((w) => w.word).join(" ")}
             </p>
           </div>
 
           <div>
             <h4 className="mb-1 text-xs font-medium text-neutral-500">
-              Segments ({segments.length})
+              Words ({words.length})
             </h4>
             <div className="max-h-64 overflow-auto rounded border border-neutral-800">
               <table className="w-full text-xs">
@@ -93,12 +93,12 @@ export function TranscriptionTest() {
                   </tr>
                 </thead>
                 <tbody>
-                  {segments.map((seg) => (
-                    <tr key={seg.id} className="border-b border-neutral-800/50 text-neutral-300">
-                      <td className="px-2 py-1">{seg.text?.word}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{seg.text?.start.toFixed(3)}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{seg.text?.end.toFixed(3)}</td>
-                      <td className="px-2 py-1 text-right tabular-nums">{seg.text?.confidence.toFixed(4)}</td>
+                  {words.map((w) => (
+                    <tr key={w.id} className="border-b border-neutral-800/50 text-neutral-300">
+                      <td className="px-2 py-1">{w.word}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{w.start.toFixed(3)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{w.end.toFixed(3)}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{w.confidence.toFixed(4)}</td>
                     </tr>
                   ))}
                 </tbody>
