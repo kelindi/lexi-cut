@@ -12,6 +12,7 @@ const PHASE_LABELS: Record<ProcessingPhase, string> = {
   idle: "Ready",
   transcribing: "Transcribing audio...",
   grouping: "Grouping segments...",
+  describing: "Analyzing video content...",
   assembling: "Analyzing narrative...",
   ready: "Complete",
   error: "Error",

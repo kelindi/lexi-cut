@@ -3243,8 +3243,6 @@ dependencies = [
 ]
 
 [[package]]
-<<<<<<< HEAD
-=======
 name = "rusqlite"
 version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3259,7 +3257,6 @@ dependencies = [
 ]
 
 [[package]]
->>>>>>> d9e92f86fdf900be306e60c8b31f58f558c5aa5c
 name = "rustc-hash"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

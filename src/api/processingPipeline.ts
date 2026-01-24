@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Segment, SegmentGroup, ProcessingProgress } from "../types";
+import type { Source, Segment, SegmentGroup, SourceDescription, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToSegments } from "./transcribe";
 import { groupSegments } from "./segmentGrouping";
+import { describeSourceFile } from "./describeSegments";
 import { requestAssemblyCut } from "./assemblyCut";
 
 /**
@@ -52,6 +53,7 @@ export interface PipelineResult {
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
+export type DescriptionCallback = (sourceId: string, descriptions: SourceDescription[]) => void;
 
 /**
  * Load a file from Tauri filesystem to browser File object
@@ -83,20 +85,26 @@ async function loadFileFromPath(path: string, name: string): Promise<File> {
  */
 export async function runPipeline(
   sources: Source[],
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  onDescriptions?: DescriptionCallback
 ): Promise<PipelineResult> {
+  console.log(`[pipeline] ===== PIPELINE START (${sources.length} sources) =====`);
+  console.log(`[pipeline] Sources:`, sources.map(s => `"${s.name}" (${s.id})`));
   const allSegments: Segment[] = [];
   const allGroups: SegmentGroup[] = [];
 
   // Pre-phase: Ensure all sources have CIDs for caching
+  console.log(`[pipeline] Pre-phase: Computing CIDs...`);
   onProgress?.({
     current: 0,
     total: sources.length,
     message: "Preparing cache keys...",
   });
   const cidMap = await ensureSourceCids(sources);
+  console.log(`[pipeline] CIDs computed: ${cidMap.size}/${sources.length} sources have CIDs`);
 
   // Phase 1: Transcribe each source (with caching)
+  console.log(`[pipeline] Phase 1: Transcribing ${sources.length} source(s)...`);
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
     const cid = cidMap.get(source.id);
@@ -107,13 +115,33 @@ export async function runPipeline(
       message: `Transcribing ${source.name}...`,
     });
 
+    console.log(`[pipeline] Phase 1: Loading file "${source.name}" from ${source.path}`);
     const file = await loadFileFromPath(source.path, source.name);
+    console.log(`[pipeline] Phase 1: File loaded (${(file.size / 1024 / 1024).toFixed(1)} MB), transcribing...`);
     const transcript = await transcribeFile(file, cid);
-    const segments = mapTranscriptToSegments(transcript, source.id);
+    let segments = mapTranscriptToSegments(transcript, source.id);
+    console.log(`[pipeline] Phase 1: "${source.name}" → ${segments.length} segments (${transcript.words?.length ?? 0} words from ElevenLabs)`);
+
+    // If no speech was detected, create a single video-only segment so Gemini can still describe the clip
+    if (segments.length === 0) {
+      const fallbackDuration = source.duration ?? 30;
+      console.log(`[pipeline] Phase 1: No speech detected, creating video-only segment (0-${fallbackDuration}s)`);
+      segments = [{
+        id: `seg-${source.id}-0`,
+        video: {
+          sourceId: source.id,
+          start: 0,
+          end: fallbackDuration,
+        },
+      }];
+    }
+
     allSegments.push(...segments);
   }
+  console.log(`[pipeline] Phase 1 COMPLETE: ${allSegments.length} total segments`);
 
   // Phase 2: Group segments by source
+  console.log(`[pipeline] Phase 2: Grouping segments...`);
   onProgress?.({
     current: 1,
     total: 2,
@@ -130,9 +158,12 @@ export async function runPipeline(
     segmentsBySource.get(sourceId)!.push(seg);
   }
 
+  console.log(`[pipeline] Phase 2: ${segmentsBySource.size} source(s) with text segments`);
+
   let groupOffset = 0;
   for (const [sourceId, segments] of segmentsBySource) {
     const groups = groupSegments(segments, sourceId);
+    console.log(`[pipeline] Phase 2: Source ${sourceId} → ${groups.length} groups from ${segments.length} segments`);
     // Offset group IDs to be globally unique
     const prefixedGroups = groups.map((g, idx) => ({
       ...g,
@@ -142,10 +173,82 @@ export async function runPipeline(
     groupOffset += groups.length;
   }
 
+  // Create groups for sources with video-only segments (no speech)
+  for (const source of sources) {
+    const hasGroup = allGroups.some((g) => g.sourceId === source.id);
+    if (!hasGroup) {
+      const videoSegments = allSegments.filter((s) => s.video?.sourceId === source.id);
+      if (videoSegments.length > 0) {
+        const seg = videoSegments[0];
+        const group: SegmentGroup = {
+          groupId: `group-${groupOffset}`,
+          sourceId: source.id,
+          segmentIds: [seg.id],
+          text: "",
+          startTime: seg.video!.start,
+          endTime: seg.video!.end,
+          avgConfidence: 0,
+        };
+        allGroups.push(group);
+        groupOffset++;
+        console.log(`[pipeline] Phase 2: Created video-only group for "${source.name}" (${seg.video!.start}s-${seg.video!.end}s)`);
+      }
+    }
+  }
+
+  console.log(`[pipeline] Phase 2 COMPLETE: ${allGroups.length} total groups`);
+
+  // Phase 2.5: Describe sources with Gemini (optional, one call per source)
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (geminiKey) {
+    console.log(`[pipeline] Phase 2.5: Describing ${sources.length} source(s) with Gemini`);
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      const duration = source.duration ?? 30;
+
+      onProgress?.({
+        current: i + 1,
+        total: sources.length,
+        message: `Describing ${source.name}...`,
+      });
+
+      console.log(`[pipeline] Phase 2.5: Loading file "${source.name}" for description...`);
+      const file = await loadFileFromPath(source.path, source.name);
+
+      const cid = cidMap.get(source.id);
+      console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
+      const descriptions = await describeSourceFile(file, duration, cid);
+
+      if (descriptions && descriptions.length > 0) {
+        source.descriptions = descriptions;
+        onDescriptions?.(source.id, descriptions);
+        console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
+        console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
+      } else {
+        console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
+      }
+    }
+    console.log(`[pipeline] Phase 2.5 COMPLETE`);
+    console.log(`[pipeline] Phase 2.5 SUMMARY:`);
+    for (const source of sources) {
+      const count = source.descriptions?.length ?? 0;
+      console.log(`[pipeline]   "${source.name}" (${source.id}): ${count} descriptions`);
+      if (source.descriptions) {
+        for (const d of source.descriptions) {
+          console.log(`[pipeline]     [${d.start.toFixed(1)}s - ${d.end.toFixed(1)}s] ${d.description}`);
+        }
+      }
+    }
+  } else {
+    console.log("[pipeline] Phase 2.5: SKIPPED (no VITE_GEMINI_API_KEY)");
+  }
+
   // Phase 3: Assembly cut (if multiple groups)
+  console.log(`[pipeline] Phase 3: Assembly cut (${allGroups.length} groups, ${sources.length} sources)`);
   let orderedGroupIds: string[];
 
   if (allGroups.length > 1 && sources.length > 1) {
+    console.log(`[pipeline] Phase 3: Multiple sources detected, calling Claude for narrative ordering...`);
     onProgress?.({
       current: 2,
       total: 2,
@@ -162,10 +265,17 @@ export async function runPipeline(
         segmentGroups: allGroups,
         sourceNames,
       });
+      console.log(`[pipeline] Phase 3: Assembly cut returned ${result.orderedSegmentIds.length} ordered IDs`);
+      console.log(`[pipeline] Phase 3: Narrative summary: "${result.narrativeSummary?.substring(0, 100)}"`);
 
       // Use Claude's recommended order, filtering to valid IDs
       const validIds = new Set(allGroups.map((g) => g.groupId));
       orderedGroupIds = result.orderedSegmentIds.filter((id) => validIds.has(id));
+
+      const missingCount = allGroups.length - orderedGroupIds.length;
+      if (missingCount > 0) {
+        console.warn(`[pipeline] Phase 3: ${missingCount} groups missing from Claude's response, appending at end`);
+      }
 
       // Add any missing groups at the end (in case Claude missed some)
       for (const group of allGroups) {
@@ -175,13 +285,19 @@ export async function runPipeline(
       }
     } catch (error) {
       // If assembly cut fails, just use chronological order
-      console.warn("Assembly cut failed, using chronological order:", error);
+      console.error("[pipeline] Phase 3: Assembly cut FAILED:", error);
       orderedGroupIds = allGroups.map((g) => g.groupId);
     }
   } else {
-    // Single source or few groups: use chronological order
+    console.log(`[pipeline] Phase 3: Single source or <=1 groups, using chronological order`);
     orderedGroupIds = allGroups.map((g) => g.groupId);
   }
+
+  console.log(`[pipeline] ===== PIPELINE COMPLETE =====`);
+  console.log(`[pipeline] Result: ${allSegments.length} segments, ${allGroups.length} groups, ${orderedGroupIds.length} ordered IDs`);
+  console.log(`[pipeline] Final segments:`, JSON.stringify(allSegments, null, 2));
+  console.log(`[pipeline] Final groups:`, JSON.stringify(allGroups, null, 2));
+  console.log(`[pipeline] Ordered IDs:`, JSON.stringify(orderedGroupIds));
 
   return {
     segments: allSegments,

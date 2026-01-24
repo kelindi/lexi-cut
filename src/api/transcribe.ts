@@ -10,13 +10,16 @@ const API_URL = "https://api.elevenlabs.io/v1/speech-to-text";
  * Otherwise calls the ElevenLabs API and caches the result.
  */
 export async function transcribeFile(file: File, cid?: string): Promise<ElevenLabsTranscriptResponse> {
+  console.log(`[transcribe] transcribeFile: "${file.name}" (${(file.size / 1024 / 1024).toFixed(1)}MB), CID=${cid?.substring(0, 8) ?? "none"}`);
+
   // Check cache if CID provided
   if (cid) {
     const cached = await getCachedTranscription(cid);
     if (cached) {
-      console.log(`Cache hit for CID ${cid.substring(0, 8)}...`);
+      console.log(`[transcribe] Cache HIT for CID ${cid.substring(0, 8)}... (${cached.words?.length ?? 0} words)`);
       return cached;
     }
+    console.log(`[transcribe] Cache MISS for CID ${cid.substring(0, 8)}...`);
   }
 
   // Call ElevenLabs API
@@ -25,6 +28,7 @@ export async function transcribeFile(file: File, cid?: string): Promise<ElevenLa
     throw new Error("Missing VITE_ELEVENLABS_API_KEY in environment variables");
   }
 
+  console.log(`[transcribe] Calling ElevenLabs API (model: scribe_v2)...`);
   const formData = new FormData();
   formData.append("file", file);
   formData.append("model_id", "scribe_v2");
@@ -41,15 +45,17 @@ export async function transcribeFile(file: File, cid?: string): Promise<ElevenLa
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[transcribe] ElevenLabs API FAILED (${response.status}): ${errorText}`);
     throw new Error(`Transcription failed (${response.status}): ${errorText}`);
   }
 
   const result = await response.json() as ElevenLabsTranscriptResponse;
+  console.log(`[transcribe] ElevenLabs returned ${result.words?.length ?? 0} words, text length=${result.text?.length ?? 0}`);
 
   // Cache result if CID provided
   if (cid) {
     await setCachedTranscription(cid, result);
-    console.log(`Cached transcription for CID ${cid.substring(0, 8)}...`);
+    console.log(`[transcribe] Cached transcription for CID ${cid.substring(0, 8)}...`);
   }
 
   return result;
@@ -66,6 +72,11 @@ export function mapTranscriptToSegments(
       text: {
         word: word.text,
         confidence: word.logprob !== undefined ? Math.exp(word.logprob) : 1,
+        sourceId,
+        start: word.start,
+        end: word.end,
+      },
+      video: {
         sourceId,
         start: word.start,
         end: word.end,

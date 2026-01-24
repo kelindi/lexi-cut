@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { fetch } from "@tauri-apps/plugin-http";
-import { CircleNotch, Play, Copy, Check, UploadSimple } from "@phosphor-icons/react";
-import { uploadVideoFile } from "../../api/gemini";
+import { CircleNotch, Play, Copy, Check, UploadSimple, ListBullets } from "@phosphor-icons/react";
+import { uploadVideoFile, describeSource, SourceDescriptionResult } from "../../api/gemini";
 
 const DEFAULT_PROMPT = `Analyze the video from {startTime}s to {endTime}s.
 Provide a concise description (1-2 sentences) of what is happening in the video during this timeframe. Focus on actions, subjects, and setting that would help a video editor understand the content of this clip.`;
@@ -22,6 +22,9 @@ export function GeminiTest() {
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isDescribing, setIsDescribing] = useState(false);
+  const [descriptions, setDescriptions] = useState<SourceDescriptionResult[] | null>(null);
+  const [durationInput, setDurationInput] = useState(30);
 
   async function handleUpload() {
     if (!file) return;
@@ -89,6 +92,23 @@ export function GeminiTest() {
       setError(err instanceof Error ? err.message : "Query failed");
     } finally {
       setIsQuerying(false);
+    }
+  }
+
+  async function handleDescribeSource() {
+    if (!fileUri) return;
+
+    setIsDescribing(true);
+    setError(null);
+    setDescriptions(null);
+
+    try {
+      const results = await describeSource(fileUri, fileMimeType, durationInput);
+      setDescriptions(results);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Describe source failed");
+    } finally {
+      setIsDescribing(false);
     }
   }
 
@@ -185,6 +205,60 @@ export function GeminiTest() {
         )}
         {isQuerying ? "Querying..." : "Query"}
       </button>
+
+      <div className="border-t border-neutral-800 pt-4">
+        <h3 className="mb-2 text-xs font-medium text-neutral-400 uppercase tracking-wide">Describe Full Video</h3>
+        <div className="flex items-center gap-4">
+          <label className="flex items-center gap-1.5 text-xs text-neutral-500">
+            Duration (s)
+            <input
+              type="number"
+              step="1"
+              value={durationInput}
+              onChange={(e) => setDurationInput(Number(e.target.value))}
+              className="w-20 rounded border border-neutral-800 bg-neutral-900 px-2 py-1.5 text-xs text-neutral-300"
+            />
+          </label>
+          <button
+            onClick={handleDescribeSource}
+            disabled={!fileUri || isDescribing}
+            className="flex items-center gap-2 rounded bg-neutral-800 px-4 py-1.5 text-sm text-white disabled:opacity-40"
+          >
+            {isDescribing ? (
+              <CircleNotch size={14} className="animate-spin" />
+            ) : (
+              <ListBullets size={14} />
+            )}
+            {isDescribing ? "Describing..." : "Describe Source"}
+          </button>
+        </div>
+      </div>
+
+      {descriptions && (
+        <div className="space-y-2">
+          <p className="text-xs text-neutral-400">{descriptions.length} segments found</p>
+          <div className="max-h-96 overflow-auto rounded border border-neutral-800">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-neutral-900">
+                <tr className="text-left text-neutral-500">
+                  <th className="px-3 py-2 w-16">Start</th>
+                  <th className="px-3 py-2 w-16">End</th>
+                  <th className="px-3 py-2">Description</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-800">
+                {descriptions.map((seg, i) => (
+                  <tr key={i} className="text-neutral-300">
+                    <td className="px-3 py-2 font-mono text-neutral-500">{seg.start.toFixed(1)}s</td>
+                    <td className="px-3 py-2 font-mono text-neutral-500">{seg.end.toFixed(1)}s</td>
+                    <td className="px-3 py-2">{seg.description}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-400">{error}</p>}
 
