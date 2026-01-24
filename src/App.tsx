@@ -1,11 +1,16 @@
+
 import { TranscriptionTest } from "./components/TranscriptionTest";
 import "./App.css";
 
 function App() {
+  const [activePage, setActivePage] = useState("clips");
+
   return (
-    <main className="container">
-      <TranscriptionTest />
-    </main>
+    <div className="pb-20">
+      {activePage === "clips" && <AddClipsPage />}
+      {activePage === "edit" && <EditPage />}
+      <BottomNav active={activePage} onNavigate={setActivePage} />
+    </div>
   );
 }
 
