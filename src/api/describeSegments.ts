@@ -1,48 +1,41 @@
 import type { Segment, DescriptionProgress, VisualDescription } from "../types";
-import { uploadVideoFile, queryVideoBatch, RateLimitError } from "./gemini";
-import type { BatchSegment } from "./gemini";
+import { uploadVideoFile, queryVideoTimeRange, RateLimitError } from "./gemini";
 import { getCachedDescriptions, setCachedDescriptions } from "./cache";
 
-const BATCH_SIZE = 5;
-const DELAY_BETWEEN_BATCHES_MS = 1000;
+const DELAY_BETWEEN_QUERIES_MS = 1000;
 const MAX_RETRIES = 3;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function chunkArray<T>(array: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
-  }
-  return chunks;
-}
-
-async function queryBatchWithRetry(
+async function queryWithRetry(
   fileUri: string,
   mimeType: string,
-  segments: BatchSegment[]
-): Promise<Record<string, { summary: string; person?: string; activity?: string; setting?: string }>> {
+  startTime: number,
+  endTime: number,
+  spokenText: string
+): Promise<string | null> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      return await queryVideoBatch(fileUri, mimeType, segments);
+      return await queryVideoTimeRange(fileUri, mimeType, startTime, endTime, spokenText);
     } catch (err) {
       if (err instanceof RateLimitError && attempt < MAX_RETRIES - 1) {
         const backoff = Math.pow(2, attempt) * 1000;
+        console.warn(`[describeSegments] Rate limited, backing off ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
         await delay(backoff);
         continue;
       }
       console.warn(
-        `Gemini batch query failed (attempt ${attempt + 1}/${MAX_RETRIES}):`,
+        `[describeSegments] Query failed (attempt ${attempt + 1}/${MAX_RETRIES}):`,
         err instanceof Error ? err.message : err
       );
       if (attempt === MAX_RETRIES - 1) {
-        return {};
+        return null;
       }
     }
   }
-  return {};
+  return null;
 }
 
 export interface DescribeResult {
@@ -64,12 +57,15 @@ export async function describeSegments(
   // Check if API key is configured
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
+    console.warn("[describeSegments] No VITE_GEMINI_API_KEY configured, skipping descriptions");
     return emptyResult;
   }
 
   // Filter to segments that have video layers (time ranges for Gemini)
   const describableSegments = segments.filter((s) => s.video);
+  console.log(`[describeSegments] ${describableSegments.length}/${segments.length} segments have video layers`);
   if (describableSegments.length === 0) {
+    console.warn("[describeSegments] No describable segments found (none have video data)");
     return emptyResult;
   }
 
@@ -77,7 +73,7 @@ export async function describeSegments(
   if (cid) {
     const cached = await getCachedDescriptions(cid);
     if (cached) {
-      console.log(`Description cache hit for CID ${cid.substring(0, 8)}...`);
+      console.log(`[describeSegments] Cache hit for CID ${cid.substring(0, 8)}...`);
       const allDescriptions = new Map<string, VisualDescription>(Object.entries(cached));
       const enrichedSegments = segments.map((segment) => {
         const desc = allDescriptions.get(segment.id);
@@ -89,40 +85,39 @@ export async function describeSegments(
   }
 
   // Phase 1: Upload video
+  console.log(`[describeSegments] Cache miss — uploading video file (${(file.size / 1024 / 1024).toFixed(1)} MB, type: ${file.type})`);
   onProgress?.({ phase: "uploading", current: 0, total: 1 });
   const { uri: fileUri, mimeType } = await uploadVideoFile(file);
+  console.log(`[describeSegments] Upload complete — fileUri: ${fileUri}`);
 
-  // Phase 2: Batch query descriptions
-  onProgress?.({ phase: "processing", current: 0, total: 1 });
+  // Phase 2: Query each segment individually
+  onProgress?.({ phase: "processing", current: 0, total: describableSegments.length });
 
   const allDescriptions = new Map<string, VisualDescription>();
-  const batches = chunkArray(describableSegments, BATCH_SIZE);
+  console.log(`[describeSegments] Querying ${describableSegments.length} segments individually`);
 
-  for (let i = 0; i < batches.length; i++) {
-    onProgress?.({ phase: "describing", current: i + 1, total: batches.length });
+  for (let i = 0; i < describableSegments.length; i++) {
+    const seg = describableSegments[i];
+    const startTime = seg.video!.start;
+    const endTime = seg.video!.end;
+    const spokenText = seg.text?.word ?? "";
 
-    const batch = batches[i];
-    const batchInput: BatchSegment[] = batch.map((s) => ({
-      segmentId: s.id,
-      startTime: s.video!.start,
-      endTime: s.video!.end,
-      text: s.text?.word ?? "",
-    }));
+    onProgress?.({ phase: "describing", current: i + 1, total: describableSegments.length });
+    console.log(`[describeSegments] Segment ${i + 1}/${describableSegments.length} (${seg.id}): ${startTime.toFixed(1)}s-${endTime.toFixed(1)}s, text="${spokenText.substring(0, 50)}"`);
 
-    const result = await queryBatchWithRetry(fileUri, mimeType, batchInput);
+    const description = await queryWithRetry(fileUri, mimeType, startTime, endTime, spokenText);
 
-    for (const [segmentId, desc] of Object.entries(result)) {
-      allDescriptions.set(segmentId, {
-        summary: desc.summary,
-        person: desc.person,
-        activity: desc.activity,
-        setting: desc.setting,
-      });
+    if (description) {
+      const visual: VisualDescription = { summary: description };
+      allDescriptions.set(seg.id, visual);
+      console.log(`[describeSegments]   ✓ ${seg.id}: "${description.substring(0, 80)}${description.length > 80 ? "..." : ""}"`);
+    } else {
+      console.warn(`[describeSegments]   ✗ ${seg.id}: no description returned`);
     }
 
-    // Delay between batches to respect rate limits
-    if (i < batches.length - 1) {
-      await delay(DELAY_BETWEEN_BATCHES_MS);
+    // Delay between queries to respect rate limits
+    if (i < describableSegments.length - 1) {
+      await delay(DELAY_BETWEEN_QUERIES_MS);
     }
   }
 
@@ -133,15 +128,18 @@ export async function describeSegments(
       cacheData[id] = desc;
     }
     await setCachedDescriptions(cid, cacheData);
-    console.log(`Cached ${allDescriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
+    console.log(`[describeSegments] Cached ${allDescriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
   }
 
   // Map descriptions back to segments
+  console.log(`[describeSegments] Total descriptions collected: ${allDescriptions.size}/${describableSegments.length}`);
   const enrichedSegments = segments.map((segment) => {
     const desc = allDescriptions.get(segment.id);
     if (!desc) return segment;
     return { ...segment, description: buildGroupDescription(desc) };
   });
+  const withDesc = enrichedSegments.filter(s => s.description);
+  console.log(`[describeSegments] Enriched ${withDesc.length} segments with descriptions`);
 
   return {
     segments: enrichedSegments,

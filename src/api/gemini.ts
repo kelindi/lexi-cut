@@ -23,8 +23,10 @@ function getApiKey(): string {
 export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeType: string }> {
   const apiKey = getApiKey();
   const mimeType = file.type || "video/mp4";
+  console.log(`[gemini] uploadVideoFile: name="${file.name}", size=${(file.size / 1024 / 1024).toFixed(1)}MB, mimeType=${mimeType}`);
 
   // Step 1: Initiate resumable upload
+  console.log(`[gemini] Step 1: Initiating resumable upload...`);
   const startResponse = await fetch(`${UPLOAD_URL}?key=${apiKey}`, {
     method: "POST",
     headers: {
@@ -48,8 +50,10 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   if (!uploadUrl) {
     throw new Error("Gemini upload init did not return an upload URL");
   }
+  console.log(`[gemini] Step 1: Upload URL obtained`);
 
   // Step 2: Upload file bytes
+  console.log(`[gemini] Step 2: Uploading ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
   const fileBuffer = await file.arrayBuffer();
   const uploadResponse = await fetch(uploadUrl, {
     method: "PUT",
@@ -68,10 +72,14 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
 
   const uploadResult = (await uploadResponse.json()) as GeminiFileUploadResponse;
   const fileName = uploadResult.file.name;
+  console.log(`[gemini] Step 2: Upload complete, fileName=${fileName}`);
 
   // Step 3: Poll until file is ACTIVE
+  console.log(`[gemini] Step 3: Polling for ACTIVE state (timeout: ${POLL_TIMEOUT_MS / 1000}s)...`);
+  let pollAttempt = 0;
   const startTime = Date.now();
   while (Date.now() - startTime < POLL_TIMEOUT_MS) {
+    pollAttempt++;
     // fileName is already prefixed with "files/" (e.g., "files/abc123"),
     // so use the base URL without the /files suffix
     const statusResponse = await fetch(
@@ -83,12 +91,15 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
     }
 
     const status = (await statusResponse.json()) as GeminiFileStatusResponse;
+    console.log(`[gemini] Step 3: Poll #${pollAttempt} → state=${status.state}`);
 
     if (status.state === "ACTIVE") {
+      console.log(`[gemini] Step 3: File is ACTIVE (uri: ${status.uri})`);
       return { uri: status.uri, mimeType };
     }
 
     if (status.state === "FAILED") {
+      console.error(`[gemini] Step 3: File processing FAILED`);
       throw new Error("Gemini file processing failed");
     }
 
@@ -106,6 +117,7 @@ export async function queryVideoTimeRange(
   spokenText: string
 ): Promise<string> {
   const apiKey = getApiKey();
+  console.log(`[gemini] queryVideoTimeRange: ${startTime.toFixed(1)}s-${endTime.toFixed(1)}s, text="${spokenText.substring(0, 40)}"`);
 
   const prompt = `Analyze the video from ${startTime.toFixed(1)}s to ${endTime.toFixed(1)}s.
 The spoken words during this time are: "${spokenText}"
@@ -130,11 +142,13 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
   });
 
   if (response.status === 429) {
+    console.warn(`[gemini] queryVideoTimeRange: Rate limited (429)`);
     throw new RateLimitError("Gemini rate limit exceeded");
   }
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[gemini] queryVideoTimeRange: Failed (${response.status}): ${errorText}`);
     throw new Error(`Gemini generateContent failed (${response.status}): ${errorText}`);
   }
 
@@ -142,9 +156,11 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!text) {
+    console.error(`[gemini] queryVideoTimeRange: Empty response. Full result:`, JSON.stringify(result, null, 2));
     throw new Error("Gemini returned empty response");
   }
 
+  console.log(`[gemini] queryVideoTimeRange: Got ${text.length} chars response`);
   return text.trim();
 }
 
@@ -153,84 +169,4 @@ export class RateLimitError extends Error {
     super(message);
     this.name = "RateLimitError";
   }
-}
-
-export interface BatchSegment {
-  segmentId: string;
-  startTime: number;
-  endTime: number;
-  text: string;
-}
-
-export async function queryVideoBatch(
-  fileUri: string,
-  mimeType: string,
-  segments: BatchSegment[]
-): Promise<Record<string, { summary: string; person?: string; activity?: string; setting?: string }>> {
-  const apiKey = getApiKey();
-
-  const clipList = segments
-    .map(
-      (s, i) =>
-        `Clip ${i + 1} (ID: "${s.segmentId}"): ${s.startTime.toFixed(1)}s to ${s.endTime.toFixed(1)}s. Spoken text: "${s.text}"`
-    )
-    .join("\n");
-
-  const prompt = `Analyze the following clips from this video. For each clip, provide:
-- summary: 1-2 sentence description combining visual and audio context, focusing on what a video editor needs to know
-- person: Description of the person on screen (appearance, clothing, facial expressions, gestures, body language)
-- activity: What is happening (actions, movements, interactions with objects or environment)
-- setting: The environment/background (location, lighting, props visible)
-
-Clips to analyze:
-${clipList}
-
-Respond with ONLY valid JSON in this exact format:
-{
-  "descriptions": {
-    "<segmentId>": { "summary": "...", "person": "...", "activity": "...", "setting": "..." }
-  }
-}`;
-
-  const body = {
-    contents: [
-      {
-        parts: [
-          { fileData: { mimeType, fileUri } },
-          { text: prompt },
-        ],
-      },
-    ],
-    generationConfig: {
-      responseMimeType: "application/json",
-    },
-  };
-
-  const response = await fetch(`${GENERATE_URL}?key=${apiKey}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (response.status === 429) {
-    throw new RateLimitError("Gemini rate limit exceeded");
-  }
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini batch generateContent failed (${response.status}): ${errorText}`);
-  }
-
-  const result = (await response.json()) as GeminiGenerateContentResponse;
-  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Gemini returned empty batch response");
-  }
-
-  const parsed = JSON.parse(text) as {
-    descriptions: Record<string, { summary: string; person?: string; activity?: string; setting?: string }>;
-  };
-
-  return parsed.descriptions;
 }

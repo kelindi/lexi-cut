@@ -175,12 +175,17 @@ function parseAssemblyCutResponse(responseText: string): AssemblyCutResult {
 export async function requestAssemblyCut(
   request: AssemblyCutRequest
 ): Promise<AssemblyCutResult> {
+  console.log(`[assemblyCut] requestAssemblyCut: ${request.segmentGroups.length} groups, ${Object.keys(request.sourceNames).length} sources`);
+  const hasDescriptions = request.segmentGroups.filter(g => g.description).length;
+  console.log(`[assemblyCut] Groups with descriptions: ${hasDescriptions}/${request.segmentGroups.length}`);
+
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("Missing VITE_ANTHROPIC_API_KEY in environment variables");
   }
 
   const { system, user } = buildPrompt(request);
+  console.log(`[assemblyCut] Calling Claude (${MODEL}), prompt length: ${user.length} chars`);
 
   const response = await fetch(API_URL, {
     method: "POST",
@@ -199,6 +204,7 @@ export async function requestAssemblyCut(
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[assemblyCut] Claude API FAILED (${response.status}): ${errorText}`);
     throw new Error(
       `Assembly cut request failed (${response.status}): ${errorText}`
     );
@@ -210,8 +216,14 @@ export async function requestAssemblyCut(
 
   const textBlock = data.content.find((block) => block.type === "text");
   if (!textBlock) {
+    console.error(`[assemblyCut] No text block in response. Full response:`, JSON.stringify(data, null, 2));
     throw new Error("Assembly cut response contained no text content");
   }
 
-  return parseAssemblyCutResponse(textBlock.text);
+  console.log(`[assemblyCut] Claude response length: ${textBlock.text.length} chars`);
+  console.log(`[assemblyCut] Response preview: ${textBlock.text.substring(0, 150)}...`);
+
+  const result = parseAssemblyCutResponse(textBlock.text);
+  console.log(`[assemblyCut] Parsed: ${result.orderedSegmentIds.length} ordered IDs, ${result.duplicates.length} duplicates`);
+  return result;
 }
