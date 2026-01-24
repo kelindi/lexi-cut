@@ -170,14 +170,45 @@ export async function runPipeline(
     allGroups.push(...prefixedGroups);
     groupOffset += groups.length;
   }
+
+  // Create groups for sources with video-only segments (no speech)
+  for (const source of sources) {
+    const hasGroup = allGroups.some((g) => g.sourceId === source.id);
+    if (!hasGroup) {
+      const videoSegments = allSegments.filter((s) => s.video?.sourceId === source.id);
+      if (videoSegments.length > 0) {
+        const seg = videoSegments[0];
+        const group: SegmentGroup = {
+          groupId: `group-${groupOffset}`,
+          sourceId: source.id,
+          segmentIds: [seg.id],
+          text: "",
+          startTime: seg.video!.start,
+          endTime: seg.video!.end,
+          avgConfidence: 0,
+        };
+        allGroups.push(group);
+        groupOffset++;
+        console.log(`[pipeline] Phase 2: Created video-only group for "${source.name}" (${seg.video!.start}s-${seg.video!.end}s)`);
+      }
+    }
+  }
+
   console.log(`[pipeline] Phase 2 COMPLETE: ${allGroups.length} total groups`);
 
-  // Phase 2.5: Describe segments with Gemini (optional)
+  // Phase 2.5: Describe groups with Gemini (optional, one call per source)
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (geminiKey) {
-    console.log(`[pipeline] Phase 2.5: Describing segments with Gemini for ${sources.length} source(s)`);
+    console.log(`[pipeline] Phase 2.5: Describing groups with Gemini for ${sources.length} source(s)`);
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i];
+      const sourceGroups = allGroups.filter((g) => g.sourceId === source.id);
+
+      if (sourceGroups.length === 0) {
+        console.log(`[pipeline] Phase 2.5: "${source.name}" has no groups, skipping`);
+        continue;
+      }
+
       onProgress?.({
         current: i + 1,
         total: sources.length,
@@ -186,44 +217,20 @@ export async function runPipeline(
 
       console.log(`[pipeline] Phase 2.5: Loading file "${source.name}" for description...`);
       const file = await loadFileFromPath(source.path, source.name);
-      const sourceSegments = allSegments.filter(
-        (s) => s.text?.sourceId === source.id || s.video?.sourceId === source.id
-      );
-
-      console.log(`[pipeline] Phase 2.5: "${source.name}" has ${sourceSegments.length} segments to describe`);
-      if (sourceSegments.length === 0) continue;
 
       const cid = cidMap.get(source.id);
-      console.log(`[pipeline] Phase 2.5: Calling describeSegments (CID: ${cid?.substring(0, 8) ?? "none"})`);
-      const result = await describeSegments(file, sourceSegments, cid);
+      console.log(`[pipeline] Phase 2.5: Calling describeSegments for ${sourceGroups.length} group(s) (CID: ${cid?.substring(0, 8) ?? "none"})`);
+      const result = await describeSegments(file, sourceGroups, cid);
       console.log(`[pipeline] Phase 2.5: Got ${result.descriptions.size} descriptions back`);
 
-      // Update segments with descriptions
-      let enrichedCount = 0;
-      for (let j = 0; j < allSegments.length; j++) {
-        const enriched = result.segments.find((s) => s.id === allSegments[j].id);
-        if (enriched?.description) {
-          allSegments[j] = { ...allSegments[j], description: enriched.description };
-          enrichedCount++;
+      // Update allGroups with enriched groups
+      for (const enrichedGroup of result.groups) {
+        const idx = allGroups.findIndex((g) => g.groupId === enrichedGroup.groupId);
+        if (idx !== -1 && enrichedGroup.description) {
+          allGroups[idx] = enrichedGroup;
         }
       }
-      console.log(`[pipeline] Phase 2.5: Updated ${enrichedCount} segments with descriptions`);
-
-      // Derive group descriptions from first child segment
-      const sourceGroups = allGroups.filter((g) => g.sourceId === source.id);
-      let groupDescCount = 0;
-      for (const group of sourceGroups) {
-        const firstSegId = group.segmentIds[0];
-        const firstSeg = allSegments.find((s) => s.id === firstSegId);
-        if (firstSeg?.description) {
-          const idx = allGroups.indexOf(group);
-          if (idx !== -1) {
-            allGroups[idx] = { ...group, description: firstSeg.description };
-            groupDescCount++;
-          }
-        }
-      }
-      console.log(`[pipeline] Phase 2.5: Derived descriptions for ${groupDescCount}/${sourceGroups.length} groups`);
+      console.log(`[pipeline] Phase 2.5: "${source.name}" — ${result.descriptions.size}/${sourceGroups.length} groups described`);
     }
     console.log(`[pipeline] Phase 2.5 COMPLETE`);
   } else {
@@ -282,6 +289,9 @@ export async function runPipeline(
 
   console.log(`[pipeline] ===== PIPELINE COMPLETE =====`);
   console.log(`[pipeline] Result: ${allSegments.length} segments, ${allGroups.length} groups, ${orderedGroupIds.length} ordered IDs`);
+  console.log(`[pipeline] Final segments:`, JSON.stringify(allSegments, null, 2));
+  console.log(`[pipeline] Final groups:`, JSON.stringify(allGroups, null, 2));
+  console.log(`[pipeline] Ordered IDs:`, JSON.stringify(orderedGroupIds));
 
   return {
     segments: allSegments,

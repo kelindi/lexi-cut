@@ -109,20 +109,32 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   throw new Error("Gemini file processing timed out (60s)");
 }
 
-export async function queryVideoTimeRange(
+export interface SegmentDescription {
+  groupId: string;
+  description: string;
+}
+
+export async function queryVideoOverview(
   fileUri: string,
   mimeType: string,
-  startTime: number,
-  endTime: number,
-  spokenText: string
-): Promise<string> {
+  groups: Array<{ groupId: string; startTime: number; endTime: number; text: string }>
+): Promise<SegmentDescription[]> {
   const apiKey = getApiKey();
-  console.log(`[gemini] queryVideoTimeRange: ${startTime.toFixed(1)}s-${endTime.toFixed(1)}s, text="${spokenText.substring(0, 40)}"`);
+  console.log(`[gemini] queryVideoOverview: ${groups.length} group(s) to describe`);
 
-  const prompt = `Analyze the video from ${startTime.toFixed(1)}s to ${endTime.toFixed(1)}s.
-The spoken words during this time are: "${spokenText}"
+  const groupList = groups
+    .map((g) => `- Group "${g.groupId}": ${g.startTime.toFixed(1)}s–${g.endTime.toFixed(1)}s, spoken: "${g.text || "(no speech)"}"`)
+    .join("\n");
 
-Provide a concise description (1-2 sentences) of what is happening in the video during this timeframe, combining visual and audio context. Focus on actions, subjects, and setting that would help a video editor understand the content of this clip.`;
+  const prompt = `Watch this video and describe what is visually happening during each time segment listed below. For each segment, provide a concise 1-2 sentence description focusing on actions, subjects, and setting that would help a video editor understand the clip content.
+
+Segments:
+${groupList}
+
+Respond as JSON array with this exact format:
+[{"groupId": "<id>", "description": "<your description>"}]
+
+Return ONLY the JSON array, no other text.`;
 
   const body = {
     contents: [
@@ -142,13 +154,13 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
   });
 
   if (response.status === 429) {
-    console.warn(`[gemini] queryVideoTimeRange: Rate limited (429)`);
+    console.warn(`[gemini] queryVideoOverview: Rate limited (429)`);
     throw new RateLimitError("Gemini rate limit exceeded");
   }
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`[gemini] queryVideoTimeRange: Failed (${response.status}): ${errorText}`);
+    console.error(`[gemini] queryVideoOverview: Failed (${response.status}): ${errorText}`);
     throw new Error(`Gemini generateContent failed (${response.status}): ${errorText}`);
   }
 
@@ -156,12 +168,22 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!text) {
-    console.error(`[gemini] queryVideoTimeRange: Empty response. Full result:`, JSON.stringify(result, null, 2));
+    console.error(`[gemini] queryVideoOverview: Empty response. Full result:`, JSON.stringify(result, null, 2));
     throw new Error("Gemini returned empty response");
   }
 
-  console.log(`[gemini] queryVideoTimeRange: Got ${text.length} chars response`);
-  return text.trim();
+  console.log(`[gemini] queryVideoOverview: Got ${text.length} chars response`);
+
+  // Parse JSON from response (handle markdown code blocks)
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) {
+    console.error(`[gemini] queryVideoOverview: Could not parse JSON from response: ${text.substring(0, 200)}`);
+    throw new Error("Gemini response was not valid JSON");
+  }
+
+  const parsed = JSON.parse(jsonMatch[0]) as SegmentDescription[];
+  console.log(`[gemini] queryVideoOverview: Parsed ${parsed.length} descriptions`);
+  return parsed;
 }
 
 export class RateLimitError extends Error {

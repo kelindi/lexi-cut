@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { Export } from "@phosphor-icons/react";
 import { TranscriptPanel } from "../components/edit/TranscriptPanel";
 import { VideoPanel } from "../components/edit/VideoPanel";
@@ -68,8 +68,10 @@ export function EditPage() {
   ]);
 
   // Auto-run pipeline when sources change and we don't have results
+  const pipelineStarted = useRef(false);
   useEffect(() => {
-    if (sources.length > 0 && segmentGroups.length === 0 && phase === "idle") {
+    if (sources.length > 0 && segmentGroups.length === 0 && phase === "idle" && !pipelineStarted.current) {
+      pipelineStarted.current = true;
       runProcessing();
     }
   }, [sources.length, segmentGroups.length, phase, runProcessing]);

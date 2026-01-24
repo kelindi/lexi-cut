@@ -1,56 +1,31 @@
-import type { Segment, DescriptionProgress, VisualDescription } from "../types";
-import { uploadVideoFile, queryVideoTimeRange, RateLimitError } from "./gemini";
+import type { SegmentGroup, DescriptionProgress } from "../types";
+import { uploadVideoFile, queryVideoOverview, RateLimitError } from "./gemini";
 import { getCachedDescriptions, setCachedDescriptions } from "./cache";
 
-const DELAY_BETWEEN_QUERIES_MS = 1000;
 const MAX_RETRIES = 3;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function queryWithRetry(
-  fileUri: string,
-  mimeType: string,
-  startTime: number,
-  endTime: number,
-  spokenText: string
-): Promise<string | null> {
-  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-    try {
-      return await queryVideoTimeRange(fileUri, mimeType, startTime, endTime, spokenText);
-    } catch (err) {
-      if (err instanceof RateLimitError && attempt < MAX_RETRIES - 1) {
-        const backoff = Math.pow(2, attempt) * 1000;
-        console.warn(`[describeSegments] Rate limited, backing off ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
-        await delay(backoff);
-        continue;
-      }
-      console.warn(
-        `[describeSegments] Query failed (attempt ${attempt + 1}/${MAX_RETRIES}):`,
-        err instanceof Error ? err.message : err
-      );
-      if (attempt === MAX_RETRIES - 1) {
-        return null;
-      }
-    }
-  }
-  return null;
-}
-
 export interface DescribeResult {
-  segments: Segment[];
-  descriptions: Map<string, VisualDescription>;
+  groups: SegmentGroup[];
+  descriptions: Map<string, string>;
 }
 
+/**
+ * Describe segment groups using a single Gemini call per source.
+ * Uploads the video once, asks Gemini to describe all groups in one request,
+ * then maps descriptions back to groups by groupId.
+ */
 export async function describeSegments(
   file: File,
-  segments: Segment[],
+  groups: SegmentGroup[],
   cid?: string,
   onProgress?: (progress: DescriptionProgress) => void
 ): Promise<DescribeResult> {
   const emptyResult: DescribeResult = {
-    segments,
+    groups,
     descriptions: new Map(),
   };
 
@@ -61,98 +36,91 @@ export async function describeSegments(
     return emptyResult;
   }
 
-  // Filter to segments that have video layers (time ranges for Gemini)
-  const describableSegments = segments.filter((s) => s.video);
-  console.log(`[describeSegments] ${describableSegments.length}/${segments.length} segments have video layers`);
-  if (describableSegments.length === 0) {
-    console.warn("[describeSegments] No describable segments found (none have video data)");
+  if (groups.length === 0) {
+    console.warn("[describeSegments] No groups to describe");
     return emptyResult;
   }
+
+  console.log(`[describeSegments] ${groups.length} group(s) to describe`);
 
   // Check cache first
   if (cid) {
     const cached = await getCachedDescriptions(cid);
     if (cached) {
       console.log(`[describeSegments] Cache hit for CID ${cid.substring(0, 8)}...`);
-      const allDescriptions = new Map<string, VisualDescription>(Object.entries(cached));
-      const enrichedSegments = segments.map((segment) => {
-        const desc = allDescriptions.get(segment.id);
-        if (!desc) return segment;
-        return { ...segment, description: buildGroupDescription(desc) };
+      const descriptions = new Map<string, string>();
+      const enrichedGroups = groups.map((group) => {
+        const desc = cached[group.groupId];
+        if (desc) {
+          descriptions.set(group.groupId, desc.summary);
+          return { ...group, description: desc.summary };
+        }
+        return group;
       });
-      return { segments: enrichedSegments, descriptions: allDescriptions };
+      return { groups: enrichedGroups, descriptions };
     }
   }
 
-  // Phase 1: Upload video
+  // Upload video
   console.log(`[describeSegments] Cache miss — uploading video file (${(file.size / 1024 / 1024).toFixed(1)} MB, type: ${file.type})`);
   onProgress?.({ phase: "uploading", current: 0, total: 1 });
   const { uri: fileUri, mimeType } = await uploadVideoFile(file);
   console.log(`[describeSegments] Upload complete — fileUri: ${fileUri}`);
 
-  // Phase 2: Query each segment individually
-  onProgress?.({ phase: "processing", current: 0, total: describableSegments.length });
+  // Single Gemini call with retry
+  onProgress?.({ phase: "describing", current: 1, total: 1 });
 
-  const allDescriptions = new Map<string, VisualDescription>();
-  console.log(`[describeSegments] Querying ${describableSegments.length} segments individually`);
+  const groupInputs = groups.map((g) => ({
+    groupId: g.groupId,
+    startTime: g.startTime,
+    endTime: g.endTime,
+    text: g.text,
+  }));
 
-  for (let i = 0; i < describableSegments.length; i++) {
-    const seg = describableSegments[i];
-    const startTime = seg.video!.start;
-    const endTime = seg.video!.end;
-    const spokenText = seg.text?.word ?? "";
+  let descriptions = new Map<string, string>();
 
-    onProgress?.({ phase: "describing", current: i + 1, total: describableSegments.length });
-    console.log(`[describeSegments] Segment ${i + 1}/${describableSegments.length} (${seg.id}): ${startTime.toFixed(1)}s-${endTime.toFixed(1)}s, text="${spokenText.substring(0, 50)}"`);
-
-    const description = await queryWithRetry(fileUri, mimeType, startTime, endTime, spokenText);
-
-    if (description) {
-      const visual: VisualDescription = { summary: description };
-      allDescriptions.set(seg.id, visual);
-      console.log(`[describeSegments]   ✓ ${seg.id}: "${description.substring(0, 80)}${description.length > 80 ? "..." : ""}"`);
-    } else {
-      console.warn(`[describeSegments]   ✗ ${seg.id}: no description returned`);
-    }
-
-    // Delay between queries to respect rate limits
-    if (i < describableSegments.length - 1) {
-      await delay(DELAY_BETWEEN_QUERIES_MS);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const results = await queryVideoOverview(fileUri, mimeType, groupInputs);
+      for (const r of results) {
+        descriptions.set(r.groupId, r.description);
+      }
+      console.log(`[describeSegments] Got ${descriptions.size}/${groups.length} descriptions from Gemini`);
+      break;
+    } catch (err) {
+      if (err instanceof RateLimitError && attempt < MAX_RETRIES - 1) {
+        const backoff = Math.pow(2, attempt) * 1000;
+        console.warn(`[describeSegments] Rate limited, backing off ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await delay(backoff);
+        continue;
+      }
+      console.error(`[describeSegments] Query failed (attempt ${attempt + 1}/${MAX_RETRIES}):`, err instanceof Error ? err.message : err);
+      if (attempt === MAX_RETRIES - 1) {
+        return emptyResult;
+      }
     }
   }
 
   // Cache results
-  if (cid && allDescriptions.size > 0) {
-    const cacheData: Record<string, VisualDescription> = {};
-    for (const [id, desc] of allDescriptions) {
-      cacheData[id] = desc;
+  if (cid && descriptions.size > 0) {
+    const cacheData: Record<string, { summary: string }> = {};
+    for (const [id, desc] of descriptions) {
+      cacheData[id] = { summary: desc };
     }
     await setCachedDescriptions(cid, cacheData);
-    console.log(`[describeSegments] Cached ${allDescriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
+    console.log(`[describeSegments] Cached ${descriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
   }
 
-  // Map descriptions back to segments
-  console.log(`[describeSegments] Total descriptions collected: ${allDescriptions.size}/${describableSegments.length}`);
-  const enrichedSegments = segments.map((segment) => {
-    const desc = allDescriptions.get(segment.id);
-    if (!desc) return segment;
-    return { ...segment, description: buildGroupDescription(desc) };
+  // Map descriptions back to groups
+  const enrichedGroups = groups.map((group) => {
+    const desc = descriptions.get(group.groupId);
+    if (!desc) return group;
+    return { ...group, description: desc };
   });
-  const withDesc = enrichedSegments.filter(s => s.description);
-  console.log(`[describeSegments] Enriched ${withDesc.length} segments with descriptions`);
+  console.log(`[describeSegments] Enriched ${descriptions.size}/${groups.length} groups with descriptions`);
 
   return {
-    segments: enrichedSegments,
-    descriptions: allDescriptions,
+    groups: enrichedGroups,
+    descriptions,
   };
-}
-
-/**
- * Build a combined description string from a VisualDescription.
- * Used to populate Segment.description and derive SegmentGroup.description.
- */
-export function buildGroupDescription(desc: VisualDescription): string {
-  return [desc.summary, desc.person, desc.activity, desc.setting]
-    .filter(Boolean)
-    .join(" | ");
 }
