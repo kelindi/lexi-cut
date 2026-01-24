@@ -1,3 +1,4 @@
+import { fetch } from "@tauri-apps/plugin-http";
 import type {
   Segment,
   SegmentGroup,

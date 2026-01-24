@@ -1,3 +1,4 @@
+import { fetch } from "@tauri-apps/plugin-http";
 import type { ElevenLabsTranscriptResponse, Segment } from "../types";
 
 const API_URL = "https://api.elevenlabs.io/v1/speech-to-text";
