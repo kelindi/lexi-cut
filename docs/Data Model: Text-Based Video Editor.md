@@ -14,7 +14,7 @@ Project
 │
 └── timeline: Segment[]  (ordered list — the user's edit state)
         │
-        ├── text?:  TextLayer   (word + confidence)
+        ├── text?:  TextLayer   (word + confidence + sourceId + time range)
         ├── video?: VideoLayer  (sourceId + time range)
         └── audio?: AudioLayer  (sourceId + time range + volume)
 ```
@@ -35,19 +35,23 @@ An imported media file.
 
 The atomic editing unit. Must have at least one layer populated.
 
-| Field   | Type        | Description                  |
-|---------|-------------|------------------------------|
-| `id`    | string      | Unique identifier            |
-| `text`  | TextLayer?  | Word and transcription data  |
-| `video` | VideoLayer? | Video time range from source |
-| `audio` | AudioLayer? | Audio time range from source |
+| Field         | Type        | Description                                  |
+|---------------|-------------|----------------------------------------------|
+| `id`          | string      | Unique identifier                            |
+| `description` | string?     | Enrichment metadata describing the segment   |
+| `text`        | TextLayer?  | Word and transcription data                  |
+| `video`       | VideoLayer? | Video time range from source                 |
+| `audio`       | AudioLayer? | Audio time range from source                 |
 
 ### TextLayer
 
-| Field        | Type   | Description                    |
-|--------------|--------|--------------------------------|
-| `word`       | string | The transcribed word           |
-| `confidence` | number | Transcription confidence (0-1) |
+| Field        | Type   | Description                              |
+|--------------|--------|------------------------------------------|
+| `word`       | string | The transcribed word                     |
+| `confidence` | number | Transcription confidence (0-1)           |
+| `sourceId`   | string | References a Source                      |
+| `start`      | number | Start time in source file (seconds)      |
+| `end`        | number | End time in source file (seconds)        |
 
 ### VideoLayer
 
