@@ -99,8 +99,9 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
     }
 
     if (status.state === "FAILED") {
-      console.error(`[gemini] Step 3: File processing FAILED`);
-      throw new Error("Gemini file processing failed");
+      const reason = status.error?.message ?? "unknown reason";
+      console.error(`[gemini] Step 3: File processing FAILED: ${reason}`, status.error);
+      throw new Error(`Gemini file processing failed: ${reason}`);
     }
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -125,14 +126,10 @@ export async function describeSource(
 
   const prompt = `Watch this video (${durationSeconds} seconds long) and describe what is visually happening throughout. Break the video into logical segments based on changes in action, subject, or setting. For each segment, provide the start time, end time, and a concise 1-2 sentence description focusing on actions, subjects, and setting.
 
-Respond as a JSON array with this exact format:
-[{"start": 0, "end": 5.2, "description": "..."}, ...]
-
 Rules:
 - Times are in seconds
 - Segments should cover the entire video without gaps
-- Each segment should be a visually distinct moment
-- Return ONLY the JSON array, no other text.`;
+- Each segment should be a visually distinct moment`;
 
   const body = {
     contents: [
@@ -143,6 +140,21 @@ Rules:
         ],
       },
     ],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            start: { type: "NUMBER", description: "Segment start time in seconds" },
+            end: { type: "NUMBER", description: "Segment end time in seconds" },
+            description: { type: "STRING", description: "Concise 1-2 sentence visual description" },
+          },
+          required: ["start", "end", "description"],
+        },
+      },
+    },
   };
 
   const response = await fetch(`${GENERATE_URL}?key=${apiKey}`, {
@@ -172,14 +184,7 @@ Rules:
 
   console.log(`[gemini] describeSource: Got ${text.length} chars response`);
 
-  // Parse JSON from response (handle markdown code blocks)
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) {
-    console.error(`[gemini] describeSource: Could not parse JSON from response: ${text.substring(0, 200)}`);
-    throw new Error("Gemini response was not valid JSON");
-  }
-
-  const parsed = JSON.parse(jsonMatch[0]) as SourceDescriptionResult[];
+  const parsed = JSON.parse(text) as SourceDescriptionResult[];
   console.log(`[gemini] describeSource: Parsed ${parsed.length} time-ranged descriptions`);
   return parsed;
 }

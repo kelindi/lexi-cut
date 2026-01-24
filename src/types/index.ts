@@ -116,6 +116,11 @@ export interface GeminiFileStatusResponse {
   name: string;
   uri: string;
   state: "PROCESSING" | "ACTIVE" | "FAILED";
+  error?: {
+    code: number;
+    message: string;
+    status: string;
+  };
 }
 
 export interface GeminiGenerateContentResponse {
