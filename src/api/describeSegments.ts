@@ -1,5 +1,5 @@
-import type { SegmentGroup, DescriptionProgress } from "../types";
-import { uploadVideoFile, queryVideoOverview, RateLimitError } from "./gemini";
+import type { SourceDescription, DescriptionProgress } from "../types";
+import { uploadVideoFile, describeSource, RateLimitError } from "./gemini";
 import { getCachedDescriptions, setCachedDescriptions } from "./cache";
 
 const MAX_RETRIES = 3;
@@ -8,119 +8,69 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export interface DescribeResult {
-  groups: SegmentGroup[];
-  descriptions: Map<string, string>;
-}
-
 /**
- * Describe segment groups using a single Gemini call per source.
- * Uploads the video once, asks Gemini to describe all groups in one request,
- * then maps descriptions back to groups by groupId.
+ * Describe a source video file using Gemini.
+ * Uploads the video once, asks Gemini for time-ranged descriptions.
+ * Returns the descriptions array, or null if it fails.
  */
-export async function describeSegments(
+export async function describeSourceFile(
   file: File,
-  groups: SegmentGroup[],
+  durationSeconds: number,
   cid?: string,
   onProgress?: (progress: DescriptionProgress) => void
-): Promise<DescribeResult> {
-  const emptyResult: DescribeResult = {
-    groups,
-    descriptions: new Map(),
-  };
-
+): Promise<SourceDescription[] | null> {
   // Check if API key is configured
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (!apiKey) {
-    console.warn("[describeSegments] No VITE_GEMINI_API_KEY configured, skipping descriptions");
-    return emptyResult;
+    console.warn("[describeSource] No VITE_GEMINI_API_KEY configured, skipping description");
+    return null;
   }
 
-  if (groups.length === 0) {
-    console.warn("[describeSegments] No groups to describe");
-    return emptyResult;
-  }
-
-  console.log(`[describeSegments] ${groups.length} group(s) to describe`);
+  console.log(`[describeSource] Describing source file "${file.name}" (${durationSeconds}s)`);
 
   // Check cache first
   if (cid) {
     const cached = await getCachedDescriptions(cid);
     if (cached) {
-      console.log(`[describeSegments] Cache hit for CID ${cid.substring(0, 8)}...`);
-      const descriptions = new Map<string, string>();
-      const enrichedGroups = groups.map((group) => {
-        const desc = cached[group.groupId];
-        if (desc) {
-          descriptions.set(group.groupId, desc.summary);
-          return { ...group, description: desc.summary };
-        }
-        return group;
-      });
-      return { groups: enrichedGroups, descriptions };
+      console.log(`[describeSource] Cache hit for CID ${cid.substring(0, 8)}... (${cached.length} descriptions)`);
+      return cached;
     }
   }
 
   // Upload video
-  console.log(`[describeSegments] Cache miss — uploading video file (${(file.size / 1024 / 1024).toFixed(1)} MB, type: ${file.type})`);
+  console.log(`[describeSource] Cache miss — uploading video file (${(file.size / 1024 / 1024).toFixed(1)} MB, type: ${file.type})`);
   onProgress?.({ phase: "uploading", current: 0, total: 1 });
   const { uri: fileUri, mimeType } = await uploadVideoFile(file);
-  console.log(`[describeSegments] Upload complete — fileUri: ${fileUri}`);
+  console.log(`[describeSource] Upload complete — fileUri: ${fileUri}`);
 
-  // Single Gemini call with retry
+  // Gemini call with retry
   onProgress?.({ phase: "describing", current: 1, total: 1 });
-
-  const groupInputs = groups.map((g) => ({
-    groupId: g.groupId,
-    startTime: g.startTime,
-    endTime: g.endTime,
-    text: g.text,
-  }));
-
-  let descriptions = new Map<string, string>();
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const results = await queryVideoOverview(fileUri, mimeType, groupInputs);
-      for (const r of results) {
-        descriptions.set(r.groupId, r.description);
+      const descriptions = await describeSource(fileUri, mimeType, durationSeconds);
+      console.log(`[describeSource] Got ${descriptions.length} time-ranged descriptions`);
+
+      // Cache result
+      if (cid) {
+        await setCachedDescriptions(cid, descriptions);
+        console.log(`[describeSource] Cached ${descriptions.length} descriptions for CID ${cid.substring(0, 8)}...`);
       }
-      console.log(`[describeSegments] Got ${descriptions.size}/${groups.length} descriptions from Gemini`);
-      break;
+
+      return descriptions;
     } catch (err) {
       if (err instanceof RateLimitError && attempt < MAX_RETRIES - 1) {
         const backoff = Math.pow(2, attempt) * 1000;
-        console.warn(`[describeSegments] Rate limited, backing off ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        console.warn(`[describeSource] Rate limited, backing off ${backoff}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
         await delay(backoff);
         continue;
       }
-      console.error(`[describeSegments] Query failed (attempt ${attempt + 1}/${MAX_RETRIES}):`, err instanceof Error ? err.message : err);
+      console.error(`[describeSource] Query failed (attempt ${attempt + 1}/${MAX_RETRIES}):`, err instanceof Error ? err.message : err);
       if (attempt === MAX_RETRIES - 1) {
-        return emptyResult;
+        return null;
       }
     }
   }
 
-  // Cache results
-  if (cid && descriptions.size > 0) {
-    const cacheData: Record<string, { summary: string }> = {};
-    for (const [id, desc] of descriptions) {
-      cacheData[id] = { summary: desc };
-    }
-    await setCachedDescriptions(cid, cacheData);
-    console.log(`[describeSegments] Cached ${descriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
-  }
-
-  // Map descriptions back to groups
-  const enrichedGroups = groups.map((group) => {
-    const desc = descriptions.get(group.groupId);
-    if (!desc) return group;
-    return { ...group, description: desc };
-  });
-  console.log(`[describeSegments] Enriched ${descriptions.size}/${groups.length} groups with descriptions`);
-
-  return {
-    groups: enrichedGroups,
-    descriptions,
-  };
+  return null;
 }

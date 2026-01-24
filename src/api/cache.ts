@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ElevenLabsTranscriptResponse, VisualDescription } from "../types";
+import type { ElevenLabsTranscriptResponse, SourceDescription } from "../types";
 
 const DATA_TYPE_TRANSCRIPTION = "transcription";
 const DATA_TYPE_DESCRIPTIONS = "descriptions";
@@ -47,15 +47,15 @@ export async function setCachedTranscription(cid: string, data: ElevenLabsTransc
 }
 
 /**
- * Get cached descriptions by CID
+ * Get cached source descriptions by CID
  */
-export async function getCachedDescriptions(cid: string): Promise<Record<string, VisualDescription> | null> {
-  return getCached<Record<string, VisualDescription>>(cid, DATA_TYPE_DESCRIPTIONS);
+export async function getCachedDescriptions(cid: string): Promise<SourceDescription[] | null> {
+  return getCached<SourceDescription[]>(cid, DATA_TYPE_DESCRIPTIONS);
 }
 
 /**
- * Set cached descriptions by CID
+ * Set cached source descriptions by CID
  */
-export async function setCachedDescriptions(cid: string, data: Record<string, VisualDescription>): Promise<void> {
-  return setCached(cid, DATA_TYPE_DESCRIPTIONS, data);
+export async function setCachedDescriptions(cid: string, descriptions: SourceDescription[]): Promise<void> {
+  return setCached(cid, DATA_TYPE_DESCRIPTIONS, descriptions);
 }

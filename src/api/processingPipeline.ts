@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Source, Segment, SegmentGroup, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToSegments } from "./transcribe";
 import { groupSegments } from "./segmentGrouping";
-import { describeSegments } from "./describeSegments";
+import { describeSourceFile } from "./describeSegments";
 import { requestAssemblyCut } from "./assemblyCut";
 
 /**
@@ -196,41 +196,33 @@ export async function runPipeline(
 
   console.log(`[pipeline] Phase 2 COMPLETE: ${allGroups.length} total groups`);
 
-  // Phase 2.5: Describe groups with Gemini (optional, one call per source)
+  // Phase 2.5: Describe sources with Gemini (optional, one call per source)
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (geminiKey) {
-    console.log(`[pipeline] Phase 2.5: Describing groups with Gemini for ${sources.length} source(s)`);
+    console.log(`[pipeline] Phase 2.5: Describing ${sources.length} source(s) with Gemini`);
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i];
-      const sourceGroups = allGroups.filter((g) => g.sourceId === source.id);
-
-      if (sourceGroups.length === 0) {
-        console.log(`[pipeline] Phase 2.5: "${source.name}" has no groups, skipping`);
-        continue;
-      }
+      const duration = source.duration ?? 30;
 
       onProgress?.({
         current: i + 1,
         total: sources.length,
-        message: `Describing clips from ${source.name}...`,
+        message: `Describing ${source.name}...`,
       });
 
       console.log(`[pipeline] Phase 2.5: Loading file "${source.name}" for description...`);
       const file = await loadFileFromPath(source.path, source.name);
 
       const cid = cidMap.get(source.id);
-      console.log(`[pipeline] Phase 2.5: Calling describeSegments for ${sourceGroups.length} group(s) (CID: ${cid?.substring(0, 8) ?? "none"})`);
-      const result = await describeSegments(file, sourceGroups, cid);
-      console.log(`[pipeline] Phase 2.5: Got ${result.descriptions.size} descriptions back`);
+      console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
+      const descriptions = await describeSourceFile(file, duration, cid);
 
-      // Update allGroups with enriched groups
-      for (const enrichedGroup of result.groups) {
-        const idx = allGroups.findIndex((g) => g.groupId === enrichedGroup.groupId);
-        if (idx !== -1 && enrichedGroup.description) {
-          allGroups[idx] = enrichedGroup;
-        }
+      if (descriptions && descriptions.length > 0) {
+        source.descriptions = descriptions;
+        console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
+      } else {
+        console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
       }
-      console.log(`[pipeline] Phase 2.5: "${source.name}" — ${result.descriptions.size}/${sourceGroups.length} groups described`);
     }
     console.log(`[pipeline] Phase 2.5 COMPLETE`);
   } else {

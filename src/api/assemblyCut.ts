@@ -24,7 +24,6 @@ Rules:
 - Preserve all unique content. Only remove true duplicates/retakes.
 - When picking the best take, prefer higher average confidence and more complete phrasing.
 - If segments come from multiple source files, note which sources contain which content.
-- When visual descriptions are provided, use them to identify same-scene retakes, group visually related content, and ensure smooth visual transitions between segments.
 - Respond ONLY with valid JSON matching the schema below. No markdown, no explanation outside the JSON.
 
 Response JSON schema:
@@ -110,7 +109,6 @@ function buildPrompt(request: AssemblyCutRequest): {
     .map(([id, name]) => `- ${id}: ${name}`)
     .join("\n");
 
-  // Include description as visualDescription when available
   const groupsForPrompt = request.segmentGroups.map((g) => ({
     groupId: g.groupId,
     sourceId: g.sourceId,
@@ -118,10 +116,7 @@ function buildPrompt(request: AssemblyCutRequest): {
     startTime: g.startTime,
     endTime: g.endTime,
     avgConfidence: g.avgConfidence,
-    ...(g.description ? { visualDescription: g.description } : {}),
   }));
-
-  const hasDescriptions = request.segmentGroups.some((g) => g.description);
 
   const user = `Here are the transcribed segment groups from ${sourceCount} source file(s):
 
@@ -131,7 +126,7 @@ ${sourceList}
 Segment groups:
 ${JSON.stringify(groupsForPrompt, null, 2)}
 
-${hasDescriptions ? "Each group includes a visual description of what is happening on screen. Use this context to make better narrative ordering decisions — group related scenes together, identify retakes of the same shot, and ensure visual continuity.\n\n" : ""}Please analyze these segments and return the assembly cut as JSON.`;
+Please analyze these segments and return the assembly cut as JSON.`;
 
   return { system: SYSTEM_PROMPT, user };
 }
@@ -176,8 +171,7 @@ export async function requestAssemblyCut(
   request: AssemblyCutRequest
 ): Promise<AssemblyCutResult> {
   console.log(`[assemblyCut] requestAssemblyCut: ${request.segmentGroups.length} groups, ${Object.keys(request.sourceNames).length} sources`);
-  const hasDescriptions = request.segmentGroups.filter(g => g.description).length;
-  console.log(`[assemblyCut] Groups with descriptions: ${hasDescriptions}/${request.segmentGroups.length}`);
+  console.log(`[assemblyCut] Sources: ${Object.keys(request.sourceNames).length}`);
 
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey) {

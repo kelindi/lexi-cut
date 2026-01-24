@@ -109,32 +109,30 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   throw new Error("Gemini file processing timed out (60s)");
 }
 
-export interface SegmentDescription {
-  groupId: string;
+export interface SourceDescriptionResult {
+  start: number;
+  end: number;
   description: string;
 }
 
-export async function queryVideoOverview(
+export async function describeSource(
   fileUri: string,
   mimeType: string,
-  groups: Array<{ groupId: string; startTime: number; endTime: number; text: string }>
-): Promise<SegmentDescription[]> {
+  durationSeconds: number
+): Promise<SourceDescriptionResult[]> {
   const apiKey = getApiKey();
-  console.log(`[gemini] queryVideoOverview: ${groups.length} group(s) to describe`);
+  console.log(`[gemini] describeSource: requesting time-ranged descriptions (duration: ${durationSeconds}s)`);
 
-  const groupList = groups
-    .map((g) => `- Group "${g.groupId}": ${g.startTime.toFixed(1)}s–${g.endTime.toFixed(1)}s, spoken: "${g.text || "(no speech)"}"`)
-    .join("\n");
+  const prompt = `Watch this video (${durationSeconds} seconds long) and describe what is visually happening throughout. Break the video into logical segments based on changes in action, subject, or setting. For each segment, provide the start time, end time, and a concise 1-2 sentence description focusing on actions, subjects, and setting.
 
-  const prompt = `Watch this video and describe what is visually happening during each time segment listed below. For each segment, provide a concise 1-2 sentence description focusing on actions, subjects, and setting that would help a video editor understand the clip content.
+Respond as a JSON array with this exact format:
+[{"start": 0, "end": 5.2, "description": "..."}, ...]
 
-Segments:
-${groupList}
-
-Respond as JSON array with this exact format:
-[{"groupId": "<id>", "description": "<your description>"}]
-
-Return ONLY the JSON array, no other text.`;
+Rules:
+- Times are in seconds
+- Segments should cover the entire video without gaps
+- Each segment should be a visually distinct moment
+- Return ONLY the JSON array, no other text.`;
 
   const body = {
     contents: [
@@ -154,13 +152,13 @@ Return ONLY the JSON array, no other text.`;
   });
 
   if (response.status === 429) {
-    console.warn(`[gemini] queryVideoOverview: Rate limited (429)`);
+    console.warn(`[gemini] describeSource: Rate limited (429)`);
     throw new RateLimitError("Gemini rate limit exceeded");
   }
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error(`[gemini] queryVideoOverview: Failed (${response.status}): ${errorText}`);
+    console.error(`[gemini] describeSource: Failed (${response.status}): ${errorText}`);
     throw new Error(`Gemini generateContent failed (${response.status}): ${errorText}`);
   }
 
@@ -168,21 +166,21 @@ Return ONLY the JSON array, no other text.`;
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!text) {
-    console.error(`[gemini] queryVideoOverview: Empty response. Full result:`, JSON.stringify(result, null, 2));
+    console.error(`[gemini] describeSource: Empty response. Full result:`, JSON.stringify(result, null, 2));
     throw new Error("Gemini returned empty response");
   }
 
-  console.log(`[gemini] queryVideoOverview: Got ${text.length} chars response`);
+  console.log(`[gemini] describeSource: Got ${text.length} chars response`);
 
   // Parse JSON from response (handle markdown code blocks)
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) {
-    console.error(`[gemini] queryVideoOverview: Could not parse JSON from response: ${text.substring(0, 200)}`);
+    console.error(`[gemini] describeSource: Could not parse JSON from response: ${text.substring(0, 200)}`);
     throw new Error("Gemini response was not valid JSON");
   }
 
-  const parsed = JSON.parse(jsonMatch[0]) as SegmentDescription[];
-  console.log(`[gemini] queryVideoOverview: Parsed ${parsed.length} descriptions`);
+  const parsed = JSON.parse(jsonMatch[0]) as SourceDescriptionResult[];
+  console.log(`[gemini] describeSource: Parsed ${parsed.length} time-ranged descriptions`);
   return parsed;
 }
 

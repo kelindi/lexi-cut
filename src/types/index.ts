@@ -1,5 +1,11 @@
 // --- Source (media file) ---
 
+export interface SourceDescription {
+  start: number;
+  end: number;
+  description: string;
+}
+
 export interface Source {
   id: string;
   cid?: string;
@@ -7,6 +13,7 @@ export interface Source {
   thumbnail: string;
   path: string;
   duration?: number;
+  descriptions?: SourceDescription[];
 }
 
 // --- Project Data Model ---
@@ -75,7 +82,6 @@ export interface SegmentGroup {
   startTime: number;
   endTime: number;
   avgConfidence: number;
-  description?: string;
 }
 
 export interface DuplicateGroup {
@@ -118,13 +124,6 @@ export interface GeminiGenerateContentResponse {
       parts: Array<{ text: string }>;
     };
   }>;
-}
-
-export interface VisualDescription {
-  summary: string;
-  person?: string;
-  activity?: string;
-  setting?: string;
 }
 
 export interface DescriptionProgress {
