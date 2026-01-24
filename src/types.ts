@@ -59,3 +59,38 @@ export interface ElevenLabsTranscriptResponse {
   words: ElevenLabsWord[];
   transcription_id: string;
 }
+
+// --- Assembly Cut (Claude API) Types ---
+
+/** A group of consecutive segments forming a phrase, sent to Claude for context */
+export interface SegmentGroup {
+  groupId: string;
+  sourceId: string;
+  segmentIds: string[];
+  text: string;
+  startTime: number;
+  endTime: number;
+  avgConfidence: number;
+}
+
+/** A set of duplicate/retake phrases identified by Claude */
+export interface DuplicateGroup {
+  phrase: string;
+  groupIds: string[];
+  recommendedGroupId: string;
+  reason: string;
+}
+
+/** The structured response returned by Claude */
+export interface AssemblyCutResult {
+  orderedSegmentIds: string[];
+  duplicates: DuplicateGroup[];
+  narrativeSummary: string;
+}
+
+/** Request payload for the assembly cut API call */
+export interface AssemblyCutRequest {
+  segmentGroups: SegmentGroup[];
+  sourceNames: Record<string, string>;
+}
+
