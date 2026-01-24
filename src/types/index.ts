@@ -75,6 +75,7 @@ export interface SegmentGroup {
   startTime: number;
   endTime: number;
   avgConfidence: number;
+  description?: string;
 }
 
 export interface DuplicateGroup {
@@ -119,8 +120,15 @@ export interface GeminiGenerateContentResponse {
   }>;
 }
 
+export interface VisualDescription {
+  summary: string;
+  person?: string;
+  activity?: string;
+  setting?: string;
+}
+
 export interface DescriptionProgress {
-  phase: "uploading" | "processing" | "querying";
+  phase: "uploading" | "processing" | "describing";
   current: number;
   total: number;
 }
@@ -144,6 +152,7 @@ export type ProcessingPhase =
   | "idle"
   | "transcribing"
   | "grouping"
+  | "describing"
   | "assembling"
   | "ready"
   | "error";
