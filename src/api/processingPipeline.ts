@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Segment, SegmentGroup, ProcessingProgress } from "../types";
+import type { Source, Segment, SegmentGroup, SourceDescription, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToSegments } from "./transcribe";
 import { groupSegments } from "./segmentGrouping";
 import { describeSourceFile } from "./describeSegments";
@@ -53,6 +53,7 @@ export interface PipelineResult {
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
+export type DescriptionCallback = (sourceId: string, descriptions: SourceDescription[]) => void;
 
 /**
  * Load a file from Tauri filesystem to browser File object
@@ -84,7 +85,8 @@ async function loadFileFromPath(path: string, name: string): Promise<File> {
  */
 export async function runPipeline(
   sources: Source[],
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  onDescriptions?: DescriptionCallback
 ): Promise<PipelineResult> {
   console.log(`[pipeline] ===== PIPELINE START (${sources.length} sources) =====`);
   console.log(`[pipeline] Sources:`, sources.map(s => `"${s.name}" (${s.id})`));
@@ -219,6 +221,7 @@ export async function runPipeline(
 
       if (descriptions && descriptions.length > 0) {
         source.descriptions = descriptions;
+        onDescriptions?.(source.id, descriptions);
         console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
       } else {
         console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
