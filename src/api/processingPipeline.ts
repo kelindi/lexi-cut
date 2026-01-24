@@ -223,11 +223,22 @@ export async function runPipeline(
         source.descriptions = descriptions;
         onDescriptions?.(source.id, descriptions);
         console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
+        console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
       } else {
         console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
       }
     }
     console.log(`[pipeline] Phase 2.5 COMPLETE`);
+    console.log(`[pipeline] Phase 2.5 SUMMARY:`);
+    for (const source of sources) {
+      const count = source.descriptions?.length ?? 0;
+      console.log(`[pipeline]   "${source.name}" (${source.id}): ${count} descriptions`);
+      if (source.descriptions) {
+        for (const d of source.descriptions) {
+          console.log(`[pipeline]     [${d.start.toFixed(1)}s - ${d.end.toFixed(1)}s] ${d.description}`);
+        }
+      }
+    }
   } else {
     console.log("[pipeline] Phase 2.5: SKIPPED (no VITE_GEMINI_API_KEY)");
   }
