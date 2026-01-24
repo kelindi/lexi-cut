@@ -124,3 +124,32 @@ export interface DescriptionProgress {
   current: number;
   total: number;
 }
+
+// --- Timeline Segment for Remotion ---
+
+export interface TimelineSegment {
+  groupId: string;
+  sourceId: string;
+  sourcePath: string;
+  sourceStart: number; // seconds into source video
+  sourceEnd: number; // seconds into source video
+  startFrame: number; // frame position in timeline
+  durationFrames: number;
+  text: string;
+}
+
+// --- Processing State ---
+
+export type ProcessingPhase =
+  | "idle"
+  | "transcribing"
+  | "grouping"
+  | "assembling"
+  | "ready"
+  | "error";
+
+export interface ProcessingProgress {
+  current: number;
+  total: number;
+  message?: string;
+}

@@ -12,12 +12,17 @@
   "dependencies": {
     "@base-ui-components/react": "1.0.0-rc.0",
     "@base-ui/react": "^1.1.0",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
     "@phosphor-icons/react": "^2.1.10",
+    "@remotion/player": "^4.0.409",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "remotion": "^4.0.409",
     "zustand": "^5.0.10"
   },
   "devDependencies": {

@@ -1,5 +1,7 @@
-
-import { TranscriptionTest } from "./components/TranscriptionTest";
+import { useState } from "react";
+import { AddClipsPage } from "./pages/AddClipsPage";
+import { EditPage } from "./pages/EditPage";
+import { BottomNav } from "./components/system/BottomNav";
 import "./App.css";
 
 function App() {
