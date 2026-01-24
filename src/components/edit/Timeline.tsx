@@ -54,7 +54,7 @@ export function Timeline() {
   const playheadPosition = totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0;
 
   return (
-    <div className="border-t border-neutral-800 bg-[#0a0a0a] p-4">
+    <div className="shrink-0 border-t border-neutral-800 bg-[#0a0a0a] px-4 py-6">
       {/* Time labels */}
       <div className="mb-1 flex justify-between text-xs text-neutral-500 font-mono">
         <span>0:00</span>
@@ -63,7 +63,7 @@ export function Timeline() {
 
       {/* Timeline track */}
       <div
-        className="relative h-8 cursor-pointer bg-neutral-900"
+        className="relative h-12 cursor-pointer bg-neutral-900"
         onClick={handleTimelineClick}
       >
         {/* Segment blocks */}

@@ -1,7 +1,11 @@
 mod commands;
 mod services;
 
-use commands::{export_video, generate_cid, generate_thumbnail, read_file_base64};
+use commands::{
+    export_video, generate_cid, generate_thumbnail, get_cached, read_file_base64, set_cached,
+};
+use services::CacheDb;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -9,11 +13,26 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
+        .setup(|app| {
+            // Initialize cache database
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .expect("Failed to get app data dir");
+
+            let cache_db =
+                CacheDb::init(app_data_dir).expect("Failed to initialize cache database");
+            app.manage(cache_db);
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             generate_thumbnail,
             generate_cid,
             export_video,
-            read_file_base64
+            read_file_base64,
+            get_cached,
+            set_cached
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

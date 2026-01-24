@@ -78,7 +78,7 @@ export function EditPage() {
   const isProcessing = phase !== "idle" && phase !== "ready" && phase !== "error";
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-[#0a0a0a]">
+    <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden bg-[#0a0a0a]">
       {/* Header */}
       <header className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
         <span className="text-sm font-medium text-white">lexi-cut</span>
@@ -93,7 +93,7 @@ export function EditPage() {
       </header>
 
       {/* Main content area */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 overflow-hidden">
         {isProcessing || phase === "error" || (phase === "idle" && sources.length === 0) ? (
           <div className="flex-1">
             <ProcessingView
@@ -106,7 +106,7 @@ export function EditPage() {
         ) : isReady ? (
           <>
             {/* Transcript panel (left) */}
-            <div className="w-1/2 border-r border-neutral-800 overflow-hidden">
+            <div className="w-2/3 border-r border-neutral-800 overflow-hidden">
               <div className="h-full flex flex-col">
                 <div className="border-b border-neutral-800 px-4 py-2">
                   <span className="text-xs font-medium uppercase text-neutral-500">
@@ -120,7 +120,7 @@ export function EditPage() {
             </div>
 
             {/* Video panel (right) */}
-            <div className="w-1/2 overflow-hidden">
+            <div className="w-1/3 overflow-hidden">
               <div className="h-full flex flex-col">
                 <div className="border-b border-neutral-800 px-4 py-2">
                   <span className="text-xs font-medium uppercase text-neutral-500">

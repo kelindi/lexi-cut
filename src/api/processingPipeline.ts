@@ -5,6 +5,47 @@ import { groupSegments } from "./segmentGrouping";
 import { describeSegments } from "./describeSegments";
 import { requestAssemblyCut } from "./assemblyCut";
 
+/**
+ * Ensure all sources have CIDs computed.
+ * Returns a map of sourceId → CID for sources that have CIDs.
+ * Computes missing CIDs and waits for them.
+ */
+async function ensureSourceCids(sources: Source[]): Promise<Map<string, string>> {
+  const cidMap = new Map<string, string>();
+
+  // Separate sources with and without CIDs
+  const withCid = sources.filter((s) => s.cid);
+  const withoutCid = sources.filter((s) => !s.cid);
+
+  // Add existing CIDs to map
+  for (const source of withCid) {
+    cidMap.set(source.id, source.cid!);
+  }
+
+  // Compute missing CIDs in parallel
+  if (withoutCid.length > 0) {
+    console.log(`Computing CIDs for ${withoutCid.length} sources...`);
+    const cidPromises = withoutCid.map(async (source) => {
+      try {
+        const cid = await invoke<string>("generate_cid", { path: source.path });
+        return { sourceId: source.id, cid };
+      } catch (error) {
+        console.warn(`Failed to compute CID for ${source.name}:`, error);
+        return { sourceId: source.id, cid: null };
+      }
+    });
+
+    const results = await Promise.all(cidPromises);
+    for (const { sourceId, cid } of results) {
+      if (cid) {
+        cidMap.set(sourceId, cid);
+      }
+    }
+  }
+
+  return cidMap;
+}
+
 export interface PipelineResult {
   segments: Segment[];
   segmentGroups: SegmentGroup[];
@@ -48,9 +89,19 @@ export async function runPipeline(
   const allSegments: Segment[] = [];
   const allGroups: SegmentGroup[] = [];
 
-  // Phase 1: Transcribe each source
+  // Pre-phase: Ensure all sources have CIDs for caching
+  onProgress?.({
+    current: 0,
+    total: sources.length,
+    message: "Preparing cache keys...",
+  });
+  const cidMap = await ensureSourceCids(sources);
+
+  // Phase 1: Transcribe each source (with caching)
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
+    const cid = cidMap.get(source.id);
+
     onProgress?.({
       current: i + 1,
       total: sources.length,
@@ -58,7 +109,7 @@ export async function runPipeline(
     });
 
     const file = await loadFileFromPath(source.path, source.name);
-    const transcript = await transcribeFile(file);
+    const transcript = await transcribeFile(file, cid);
     const segments = mapTranscriptToSegments(transcript, source.id);
     allSegments.push(...segments);
   }

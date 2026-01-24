@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -16,13 +16,15 @@ import {
 import { Block } from "./Block";
 import { useProjectStore } from "../../stores/useProjectStore";
 import { useSelectionStore } from "../../stores/useSelectionStore";
-import { usePlaybackStore, secondsToFrames } from "../../stores/usePlaybackStore";
+import { usePlaybackStore, secondsToFrames, framesToSeconds } from "../../stores/usePlaybackStore";
+import { useTimelineSegments } from "../../hooks/useTimelineSegments";
 import type { SegmentGroup } from "../../types";
 
 export function TranscriptPanel() {
   const orderedGroupIds = useProjectStore((s) => s.orderedGroupIds);
   const excludedGroupIds = useProjectStore((s) => s.excludedGroupIds);
   const segmentGroups = useProjectStore((s) => s.segmentGroups);
+  const segments = useProjectStore((s) => s.segments);
   const reorderGroups = useProjectStore((s) => s.reorderGroups);
   const excludeGroup = useProjectStore((s) => s.excludeGroup);
   const updateGroupText = useProjectStore((s) => s.updateGroupText);
@@ -30,7 +32,24 @@ export function TranscriptPanel() {
   const selectedBlockId = useSelectionStore((s) => s.selectedBlockId);
   const selectBlock = useSelectionStore((s) => s.selectBlock);
 
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const seekToFrame = usePlaybackStore((s) => s.seekToFrame);
+
+  const timelineSegments = useTimelineSegments();
+
+  // Compute which group is active and its source time
+  const activePlayback = useMemo(() => {
+    for (const seg of timelineSegments) {
+      if (currentFrame >= seg.startFrame && currentFrame < seg.startFrame + seg.durationFrames) {
+        // Calculate how far into this segment we are
+        const offsetFrames = currentFrame - seg.startFrame;
+        const offsetSeconds = framesToSeconds(offsetFrames);
+        const sourceTime = seg.sourceStart + offsetSeconds;
+        return { groupId: seg.groupId, sourceTime };
+      }
+    }
+    return null;
+  }, [currentFrame, timelineSegments]);
 
   // Build list of visible groups in order
   const excludedSet = new Set(excludedGroupIds);
@@ -95,6 +114,21 @@ export function TranscriptPanel() {
     [excludeGroup, selectedBlockId, selectBlock]
   );
 
+  // Handle word click to seek to that word's position
+  const handleWordClick = useCallback(
+    (groupId: string, wordSourceTime: number) => {
+      const timelineSeg = timelineSegments.find((s) => s.groupId === groupId);
+      if (!timelineSeg) return;
+
+      // Calculate frame: group start + offset within group
+      const offsetInGroup = wordSourceTime - timelineSeg.sourceStart;
+      const targetFrame = timelineSeg.startFrame + secondsToFrames(offsetInGroup);
+      // Preserve playing state - if playing, continue playing from new position
+      seekToFrame(targetFrame, true);
+    },
+    [timelineSegments, seekToFrame]
+  );
+
   // Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -148,10 +182,17 @@ export function TranscriptPanel() {
               <Block
                 key={group.groupId}
                 group={group}
+                segments={segments}
                 isSelected={selectedBlockId === group.groupId}
+                currentSourceTime={
+                  activePlayback?.groupId === group.groupId
+                    ? activePlayback.sourceTime
+                    : null
+                }
                 onSelect={() => handleBlockSelect(group)}
                 onDelete={() => handleBlockDelete(group.groupId)}
                 onTextChange={(text) => updateGroupText(group.groupId, text)}
+                onWordClick={(sourceTime) => handleWordClick(group.groupId, sourceTime)}
               />
             ))}
           </div>

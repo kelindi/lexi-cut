@@ -6,27 +6,36 @@ interface PlaybackState {
   isPlaying: boolean;
   currentFrame: number;
   durationInFrames: number;
+  seekRequest: { frame: number; preservePlaying: boolean } | null;
 
   // Actions
   play: () => void;
   pause: () => void;
   toggle: () => void;
-  seekToFrame: (frame: number) => void;
+  seekToFrame: (frame: number, preservePlaying?: boolean) => void;
   setDurationInFrames: (frames: number) => void;
   setCurrentFrame: (frame: number) => void;
+  clearSeekRequest: () => void;
 }
 
 export const usePlaybackStore = create<PlaybackState>((set) => ({
   isPlaying: false,
   currentFrame: 0,
   durationInFrames: 0,
+  seekRequest: null,
 
   play: () => set({ isPlaying: true }),
   pause: () => set({ isPlaying: false }),
   toggle: () => set((state) => ({ isPlaying: !state.isPlaying })),
-  seekToFrame: (frame) => set({ currentFrame: frame, isPlaying: false }),
+  seekToFrame: (frame, preservePlaying = false) =>
+    set((state) => ({
+      currentFrame: frame,
+      isPlaying: preservePlaying ? state.isPlaying : false,
+      seekRequest: { frame, preservePlaying },
+    })),
   setDurationInFrames: (frames) => set({ durationInFrames: frames }),
   setCurrentFrame: (frame) => set({ currentFrame: frame }),
+  clearSeekRequest: () => set({ seekRequest: null }),
 }));
 
 // Utilities
