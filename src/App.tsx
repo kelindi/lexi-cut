@@ -1,49 +1,85 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useState, useRef } from "react";
+import { transcribeFile, mapTranscriptToSegments } from "./api/transcribe";
+import type { Segment, ElevenLabsTranscriptResponse } from "./types";
 import "./App.css";
 
 function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [segments, setSegments] = useState<Segment[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [rawResponse, setRawResponse] = useState<ElevenLabsTranscriptResponse | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+  async function handleTranscribe() {
+    if (!file) return;
+
+    setIsLoading(true);
+    setError(null);
+    setSegments([]);
+    setRawResponse(null);
+
+    try {
+      const response = await transcribeFile(file);
+      setRawResponse(response);
+      const sourceId = file.name;
+      const mapped = mapTranscriptToSegments(response, sourceId);
+      setSegments(mapped);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transcription failed");
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
+      <h1>Lexi Cut</h1>
 
       <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
         <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*,video/*"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null);
+            setError(null);
+          }}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+        <button
+          onClick={handleTranscribe}
+          disabled={!file || isLoading}
+        >
+          {isLoading ? "Transcribing..." : "Transcribe"}
+        </button>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+
+      {rawResponse && (
+        <div className="result-meta">
+          <p>Language: {rawResponse.language_code} ({(rawResponse.language_probability * 100).toFixed(1)}% confidence)</p>
+          <p>Words: {segments.length}</p>
+        </div>
+      )}
+
+      {segments.length > 0 && (
+        <div className="transcript">
+          <h2>Transcript</h2>
+          <p className="transcript-text">
+            {segments.map((seg) => seg.text?.word).join(" ")}
+          </p>
+
+          <h3>Word Timeline</h3>
+          <div className="word-list">
+            {segments.map((seg) => (
+              <span key={seg.id} className="word-chip" title={`${seg.text?.start.toFixed(2)}s - ${seg.text?.end.toFixed(2)}s`}>
+                {seg.text?.word}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </main>
   );
 }
