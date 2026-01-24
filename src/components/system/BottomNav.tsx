@@ -1,4 +1,4 @@
-import { FileVideo, FilmReel } from "@phosphor-icons/react";
+import { FileVideo, FilmReel, Flask } from "@phosphor-icons/react";
 
 interface NavItem {
   id: string;
@@ -16,6 +16,11 @@ const navItems: NavItem[] = [
     id: "edit",
     label: "Edit",
     icon: <FilmReel size={24} />,
+  },
+  {
+    id: "test",
+    label: "Test",
+    icon: <Flask size={24} />,
   },
 ];
 
