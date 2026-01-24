@@ -458,7 +458,7 @@ Insert this block after the Phase 2 grouping loop (after the `groupOffset += gro
 ## Stage 5: Enhance Assembly Cut with Descriptions
 
 **File:** `src/api/assemblyCut.ts`
-**Status:** Not Started
+**Status:** Complete
 
 ### Update the `buildPrompt()` function (line 102-123)
 
@@ -542,7 +542,7 @@ Add this rule to the existing rules list in `SYSTEM_PROMPT` (after the line abou
 ## Stage 6: Update Processing UI
 
 **File:** `src/components/edit/ProcessingView.tsx`
-**Status:** Not Started
+**Status:** Complete
 
 ### Add `"describing"` to `PHASE_LABELS` (line 11-18)
 
@@ -575,6 +575,95 @@ This is a one-line addition. TypeScript will enforce this since `PHASE_LABELS` i
 
 ---
 
+## Stage 7: Cache Descriptions (same pattern as transcriptions)
+
+**Status:** Complete
+
+Uses the existing `cache` table with `data_type = "descriptions"` — same approach as transcription caching. The `VisualDescription` map is stored as a JSON blob, keyed by CID.
+
+### 7A: Add description cache helpers to `src/api/cache.ts`
+
+Follow the exact same pattern as `getCachedTranscription`/`setCachedTranscription`:
+
+```typescript
+import type { VisualDescription } from "../types";
+
+const DATA_TYPE_DESCRIPTIONS = "descriptions";
+
+/**
+ * Cached format: Record<segmentId, VisualDescription>
+ */
+export async function getCachedDescriptions(
+  cid: string
+): Promise<Record<string, VisualDescription> | null> {
+  return getCached<Record<string, VisualDescription>>(cid, DATA_TYPE_DESCRIPTIONS);
+}
+
+export async function setCachedDescriptions(
+  cid: string,
+  data: Record<string, VisualDescription>
+): Promise<void> {
+  return setCached(cid, DATA_TYPE_DESCRIPTIONS, data);
+}
+```
+
+### 7B: Integrate cache into `src/api/describeSegments.ts`
+
+Add `cid?: string` parameter to `describeSegments()`. Check cache before Gemini, store after — same flow as `transcribeFile()`.
+
+```typescript
+import { getCachedDescriptions, setCachedDescriptions } from "./cache";
+
+export async function describeSegments(
+  file: File,
+  segments: Segment[],
+  cid?: string,  // ← ADD
+  onProgress?: (progress: DescriptionProgress) => void
+): Promise<DescribeResult> {
+  // ... existing early returns ...
+
+  // Check cache first
+  if (cid) {
+    const cached = await getCachedDescriptions(cid);
+    if (cached) {
+      console.log(`Description cache hit for CID ${cid.substring(0, 8)}...`);
+      const allDescriptions = new Map<string, VisualDescription>(Object.entries(cached));
+      const enrichedSegments = segments.map((segment) => {
+        const desc = allDescriptions.get(segment.id);
+        if (!desc) return segment;
+        return { ...segment, description: buildGroupDescription(desc) };
+      });
+      return { segments: enrichedSegments, descriptions: allDescriptions };
+    }
+  }
+
+  // ... existing Gemini upload + batch logic ...
+
+  // Cache results
+  if (cid && allDescriptions.size > 0) {
+    const cacheData: Record<string, VisualDescription> = {};
+    for (const [id, desc] of allDescriptions) {
+      cacheData[id] = desc;
+    }
+    await setCachedDescriptions(cid, cacheData);
+    console.log(`Cached ${allDescriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
+  }
+
+  return { segments: enrichedSegments, descriptions: allDescriptions };
+}
+```
+
+### 7C: Pass CID from pipeline to `describeSegments`
+
+In `src/api/processingPipeline.ts`, Phase 2.5 already has access to `cidMap`. Pass it through:
+
+```typescript
+const cid = cidMap.get(source.id);
+const result = await describeSegments(file, sourceSegments, cid);
+```
+
+---
+
 ## Verification Checklist
 
 After implementation, verify:
@@ -600,11 +689,13 @@ After implementation, verify:
 | File | Action | What to do |
 |------|--------|------------|
 | `src/types/index.ts` | Modify | Add `VisualDescription` interface, add `description?: string` to `SegmentGroup`, add `"describing"` to `ProcessingPhase`, update `DescriptionProgress` |
-| `src/api/gemini.ts` | Modify | Add `BatchGroup` interface and `queryVideoBatch()` function |
-| `src/api/describeSegments.ts` | Rewrite | Replace sequential queries with batched flow, return `DescribeResult` with `groupDescriptions` map |
-| `src/api/processingPipeline.ts` | Modify | Import `describeSegments`/`buildGroupDescription`, add Phase 2.5 between grouping and assembly cut |
+| `src/api/gemini.ts` | Modify | Add `BatchSegment` interface and `queryVideoBatch()` function |
+| `src/api/describeSegments.ts` | Rewrite | Replace sequential queries with batched segment-level flow, return `DescribeResult` |
+| `src/api/processingPipeline.ts` | Modify | Import `describeSegments`, add Phase 2.5, pass CID for caching, write metadata |
 | `src/api/assemblyCut.ts` | Modify | Update `buildPrompt()` to include visual descriptions, update `SYSTEM_PROMPT` |
-| Processing UI component | Modify | Add `"describing"` phase label |
+| `src/components/edit/ProcessingView.tsx` | Modify | Add `"describing"` phase label |
+| `src/pages/EditPage.tsx` | Modify | Add `"Describing"` → `setPhase("describing")` in progress callback |
+| `src/api/cache.ts` | Modify | Add `getCachedDescriptions`, `setCachedDescriptions` (uses existing `cache` table with `data_type = "descriptions"`) |
 
 ---
 

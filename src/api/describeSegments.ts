@@ -1,6 +1,7 @@
 import type { Segment, DescriptionProgress, VisualDescription } from "../types";
 import { uploadVideoFile, queryVideoBatch, RateLimitError } from "./gemini";
 import type { BatchSegment } from "./gemini";
+import { getCachedDescriptions, setCachedDescriptions } from "./cache";
 
 const BATCH_SIZE = 5;
 const DELAY_BETWEEN_BATCHES_MS = 1000;
@@ -52,6 +53,7 @@ export interface DescribeResult {
 export async function describeSegments(
   file: File,
   segments: Segment[],
+  cid?: string,
   onProgress?: (progress: DescriptionProgress) => void
 ): Promise<DescribeResult> {
   const emptyResult: DescribeResult = {
@@ -69,6 +71,21 @@ export async function describeSegments(
   const describableSegments = segments.filter((s) => s.video);
   if (describableSegments.length === 0) {
     return emptyResult;
+  }
+
+  // Check cache first
+  if (cid) {
+    const cached = await getCachedDescriptions(cid);
+    if (cached) {
+      console.log(`Description cache hit for CID ${cid.substring(0, 8)}...`);
+      const allDescriptions = new Map<string, VisualDescription>(Object.entries(cached));
+      const enrichedSegments = segments.map((segment) => {
+        const desc = allDescriptions.get(segment.id);
+        if (!desc) return segment;
+        return { ...segment, description: buildGroupDescription(desc) };
+      });
+      return { segments: enrichedSegments, descriptions: allDescriptions };
+    }
   }
 
   // Phase 1: Upload video
@@ -107,6 +124,16 @@ export async function describeSegments(
     if (i < batches.length - 1) {
       await delay(DELAY_BETWEEN_BATCHES_MS);
     }
+  }
+
+  // Cache results
+  if (cid && allDescriptions.size > 0) {
+    const cacheData: Record<string, VisualDescription> = {};
+    for (const [id, desc] of allDescriptions) {
+      cacheData[id] = desc;
+    }
+    await setCachedDescriptions(cid, cacheData);
+    console.log(`Cached ${allDescriptions.size} descriptions for CID ${cid.substring(0, 8)}...`);
   }
 
   // Map descriptions back to segments

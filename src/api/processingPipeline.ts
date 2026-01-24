@@ -161,7 +161,8 @@ export async function runPipeline(
 
       if (sourceSegments.length === 0) continue;
 
-      const result = await describeSegments(file, sourceSegments);
+      const cid = cidMap.get(source.id);
+      const result = await describeSegments(file, sourceSegments, cid);
 
       // Update segments with descriptions
       for (let j = 0; j < allSegments.length; j++) {
