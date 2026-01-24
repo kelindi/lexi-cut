@@ -1,9 +1,8 @@
 import { Play, Pause } from "@phosphor-icons/react";
-import { formatTime, framesToSeconds } from "../../stores/usePlaybackStore";
+import { usePlaybackStore, formatTime, framesToSeconds } from "../../stores/usePlaybackStore";
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
-  currentFrame: number;
   totalFrames: number;
   onPlay: () => void;
   onPause: () => void;
@@ -12,12 +11,13 @@ interface PlaybackControlsProps {
 
 export function PlaybackControls({
   isPlaying,
-  currentFrame,
   totalFrames,
   onPlay,
   onPause,
   onSeek,
 }: PlaybackControlsProps) {
+  // Get currentFrame directly to isolate re-renders to this component
+  const currentFrame = usePlaybackStore((s) => s.currentFrame);
   const currentTime = formatTime(framesToSeconds(currentFrame));
   const totalTime = formatTime(framesToSeconds(totalFrames));
   const progress = totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0;

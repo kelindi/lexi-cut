@@ -1,6 +1,6 @@
-import { AbsoluteFill, Sequence } from "remotion";
-import { SyncedVideo } from "./SyncedVideo";
+import { AbsoluteFill, Sequence, Video } from "remotion";
 import type { TimelineSegment } from "../../types";
+import { FPS } from "../../stores/usePlaybackStore";
 
 interface VideoCompositionProps {
   segments: TimelineSegment[];
@@ -29,9 +29,11 @@ export const VideoComposition: React.FC<VideoCompositionProps> = ({
           from={seg.startFrame}
           durationInFrames={seg.durationFrames}
         >
-          <SyncedVideo
+          <Video
             src={videoUrls?.[seg.sourcePath] || ""}
-            startFrom={seg.sourceStart}
+            startFrom={Math.round(seg.sourceStart * FPS)}
+            style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            pauseWhenBuffering
           />
         </Sequence>
       ))}

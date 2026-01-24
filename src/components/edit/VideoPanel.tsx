@@ -1,37 +1,70 @@
-import { useRef, useEffect, useCallback, useMemo } from "react";
+import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { Player, PlayerRef } from "@remotion/player";
 import { VideoComposition, calculateTotalFrames } from "./VideoComposition";
 import { PlaybackControls } from "./PlaybackControls";
 import { usePlaybackStore, FPS } from "../../stores/usePlaybackStore";
 import { useTimelineSegments } from "../../hooks/useTimelineSegments";
-import { useVideoUrls } from "../../hooks/useVideoUrl";
+import { getVideoUrl } from "../../lib/assetUrl";
 
 export function VideoPanel() {
   const playerRef = useRef<PlayerRef>(null);
   const segments = useTimelineSegments();
   const totalFrames = calculateTotalFrames(segments);
 
-  // Extract unique source paths for preloading
+  // Extract unique source paths
   const sourcePaths = useMemo(() => {
     return [...new Set(segments.map((seg) => seg.sourcePath))];
   }, [segments]);
 
-  // Preload videos as blob URLs
-  const { urls: videoUrls, isLoading: videosLoading } = useVideoUrls(sourcePaths);
+  // Fetch video URLs from the local server
+  const [videoUrls, setVideoUrls] = useState<Record<string, string>>({});
+  const [urlsLoading, setUrlsLoading] = useState(false);
 
-  const {
-    isPlaying,
-    currentFrame,
-    setCurrentFrame,
-    setDurationInFrames,
-    play,
-    pause,
-  } = usePlaybackStore();
+  useEffect(() => {
+    if (sourcePaths.length === 0) {
+      setVideoUrls({});
+      return;
+    }
+
+    setUrlsLoading(true);
+    Promise.all(
+      sourcePaths.map(async (path) => {
+        const url = await getVideoUrl(path);
+        return [path, url] as const;
+      })
+    )
+      .then((entries) => {
+        setVideoUrls(Object.fromEntries(entries));
+        setUrlsLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to get video URLs:", err);
+        setUrlsLoading(false);
+      });
+  }, [sourcePaths.join(",")]);
+
+  // Only subscribe to what we need - NOT currentFrame (causes 30fps re-renders)
+  const isPlaying = usePlaybackStore((s) => s.isPlaying);
+  const setCurrentFrame = usePlaybackStore((s) => s.setCurrentFrame);
+  const setDurationInFrames = usePlaybackStore((s) => s.setDurationInFrames);
+  const play = usePlaybackStore((s) => s.play);
+  const pause = usePlaybackStore((s) => s.pause);
 
   // Update duration when segments change
   useEffect(() => {
     setDurationInFrames(totalFrames);
   }, [totalFrames, setDurationInFrames]);
+
+  // Track player instance for effects
+  const [playerReady, setPlayerReady] = useState(0);
+
+  const playerRefCallback = useCallback((player: PlayerRef | null) => {
+    (playerRef as React.MutableRefObject<PlayerRef | null>).current = player;
+    if (player) {
+      // Trigger effects to re-run when player mounts
+      setPlayerReady((n) => n + 1);
+    }
+  }, []);
 
   // Sync player state with store
   useEffect(() => {
@@ -43,14 +76,22 @@ export function VideoPanel() {
     } else {
       player.pause();
     }
-  }, [isPlaying]);
+  }, [isPlaying, playerReady]);
 
-  // Seek to frame when currentFrame changes externally
+  // Listen to frame updates from the player and sync back to store
   useEffect(() => {
     const player = playerRef.current;
     if (!player) return;
-    player.seekTo(currentFrame);
-  }, [currentFrame]);
+
+    const handleFrameUpdate = (e: { detail: { frame: number } }) => {
+      setCurrentFrame(e.detail.frame);
+    };
+
+    player.addEventListener("frameupdate", handleFrameUpdate);
+    return () => {
+      player.removeEventListener("frameupdate", handleFrameUpdate);
+    };
+  }, [setCurrentFrame, playerReady]);
 
   const handlePlay = useCallback(() => {
     play();
@@ -68,10 +109,24 @@ export function VideoPanel() {
     [setCurrentFrame]
   );
 
+  // Memoize inputProps to prevent unnecessary Player re-renders
+  const inputProps = useMemo(
+    () => ({ segments, videoUrls }),
+    [segments, videoUrls]
+  );
+
   if (segments.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-neutral-500">
         No segments to preview
+      </div>
+    );
+  }
+
+  if (urlsLoading || Object.keys(videoUrls).length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center text-neutral-500">
+        Loading videos...
       </div>
     );
   }
@@ -88,15 +143,10 @@ export function VideoPanel() {
             maxHeight: "100%",
           }}
         >
-          {videosLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-neutral-900 z-10">
-              <div className="text-neutral-500 text-sm">Loading...</div>
-            </div>
-          )}
           <Player
-            ref={playerRef}
+            ref={playerRefCallback}
             component={VideoComposition}
-            inputProps={{ segments, videoUrls }}
+            inputProps={inputProps}
             durationInFrames={totalFrames}
             fps={FPS}
             compositionWidth={1080}
@@ -117,7 +167,6 @@ export function VideoPanel() {
       {/* Playback controls */}
       <PlaybackControls
         isPlaying={isPlaying}
-        currentFrame={currentFrame}
         totalFrames={totalFrames}
         onPlay={handlePlay}
         onPause={handlePause}
