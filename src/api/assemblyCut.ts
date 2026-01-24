@@ -106,13 +106,22 @@ function buildPrompt(request: AssemblyCutRequest): {
     .map(([id, name]) => `- ${id}: ${name}`)
     .join("\n");
 
+  const groupsForPrompt = request.segmentGroups.map((g) => ({
+    groupId: g.groupId,
+    sourceId: g.sourceId,
+    text: g.text,
+    startTime: g.startTime,
+    endTime: g.endTime,
+    avgConfidence: g.avgConfidence,
+  }));
+
   const user = `Here are the transcribed segment groups from ${sourceCount} source file(s):
 
 Source files:
 ${sourceList}
 
 Segment groups:
-${JSON.stringify(request.segmentGroups, null, 2)}
+${JSON.stringify(groupsForPrompt, null, 2)}
 
 Please analyze these segments and return the assembly cut as JSON.`;
 
@@ -158,12 +167,16 @@ function parseAssemblyCutResponse(responseText: string): AssemblyCutResult {
 export async function requestAssemblyCut(
   request: AssemblyCutRequest
 ): Promise<AssemblyCutResult> {
+  console.log(`[assemblyCut] requestAssemblyCut: ${request.segmentGroups.length} groups, ${Object.keys(request.sourceNames).length} sources`);
+  console.log(`[assemblyCut] Sources: ${Object.keys(request.sourceNames).length}`);
+
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey) {
     throw new Error("Missing VITE_ANTHROPIC_API_KEY in environment variables");
   }
 
   const { system, user } = buildPrompt(request);
+  console.log(`[assemblyCut] Calling Claude (${MODEL}), prompt length: ${user.length} chars`);
 
   const response = await fetch(API_URL, {
     method: "POST",
@@ -182,6 +195,7 @@ export async function requestAssemblyCut(
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[assemblyCut] Claude API FAILED (${response.status}): ${errorText}`);
     throw new Error(
       `Assembly cut request failed (${response.status}): ${errorText}`
     );
@@ -193,8 +207,14 @@ export async function requestAssemblyCut(
 
   const textBlock = data.content.find((block) => block.type === "text");
   if (!textBlock) {
+    console.error(`[assemblyCut] No text block in response. Full response:`, JSON.stringify(data, null, 2));
     throw new Error("Assembly cut response contained no text content");
   }
 
-  return parseAssemblyCutResponse(textBlock.text);
+  console.log(`[assemblyCut] Claude response length: ${textBlock.text.length} chars`);
+  console.log(`[assemblyCut] Response preview: ${textBlock.text.substring(0, 150)}...`);
+
+  const result = parseAssemblyCutResponse(textBlock.text);
+  console.log(`[assemblyCut] Parsed: ${result.orderedSegmentIds.length} ordered IDs, ${result.duplicates.length} duplicates`);
+  return result;
 }

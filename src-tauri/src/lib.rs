@@ -21,7 +21,8 @@ pub fn run() {
                 .app_data_dir()
                 .expect("Failed to get app data dir");
 
-            let cache_db = CacheDb::init(app_data_dir).expect("Failed to initialize cache database");
+            let cache_db =
+                CacheDb::init(app_data_dir).expect("Failed to initialize cache database");
             app.manage(cache_db);
 
             Ok(())

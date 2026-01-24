@@ -1,5 +1,11 @@
 // --- Source (media file) ---
 
+export interface SourceDescription {
+  start: number;
+  end: number;
+  description: string;
+}
+
 export interface Source {
   id: string;
   cid?: string;
@@ -7,6 +13,7 @@ export interface Source {
   thumbnail: string;
   path: string;
   duration?: number;
+  descriptions?: SourceDescription[];
 }
 
 // --- Project Data Model ---
@@ -102,6 +109,11 @@ export interface GeminiFileStatusResponse {
   name: string;
   uri: string;
   state: "PROCESSING" | "ACTIVE" | "FAILED";
+  error?: {
+    code: number;
+    message: string;
+    status: string;
+  };
 }
 
 export interface GeminiGenerateContentResponse {
@@ -113,7 +125,7 @@ export interface GeminiGenerateContentResponse {
 }
 
 export interface DescriptionProgress {
-  phase: "uploading" | "processing" | "querying";
+  phase: "uploading" | "processing" | "describing";
   current: number;
   total: number;
 }
@@ -138,6 +150,7 @@ export type ProcessingPhase =
   | "idle"
   | "transcribing"
   | "grouping"
+  | "describing"
   | "assembling"
   | "ready"
   | "error";

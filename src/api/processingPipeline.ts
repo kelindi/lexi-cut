@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Word, SegmentGroup, Sentence, ProcessingProgress } from "../types";
+import type { Source, Word, SegmentGroup, Sentence, SourceDescription, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToWords } from "./transcribe";
 import { groupWords } from "./segmentGrouping";
-import { requestAssemblyCut } from "./assemblyCut";
-import { extractSentences } from "../utils/sentenceExtractor";
+import { describeSourceFile } from "./describeSegments";
+import { requestAssemblyCut, groupWordsForAssembly } from "./assemblyCut";
 
 /**
  * Ensure all sources have CIDs computed.
@@ -51,11 +51,11 @@ export interface PipelineResult {
   segmentGroups: SegmentGroup[];
   orderedGroupIds: string[];
   sentences: Sentence[];
-  orderedSentenceIds: string[];
   transcriptlessSourceIds: string[];
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
+export type DescriptionCallback = (sourceId: string, descriptions: SourceDescription[]) => void;
 
 /**
  * Load a file from Tauri filesystem to browser File object
@@ -87,21 +87,27 @@ async function loadFileFromPath(path: string, name: string): Promise<File> {
  */
 export async function runPipeline(
   sources: Source[],
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  onDescriptions?: DescriptionCallback
 ): Promise<PipelineResult> {
+  console.log(`[pipeline] ===== PIPELINE START (${sources.length} sources) =====`);
+  console.log(`[pipeline] Sources:`, sources.map(s => `"${s.name}" (${s.id})`));
   const allWords: Word[] = [];
   const allGroups: SegmentGroup[] = [];
-  const transcriptlessSourceIds: string[] = [];
+  const sourcesWithNoSpeech: { sourceId: string; duration: number }[] = [];
 
   // Pre-phase: Ensure all sources have CIDs for caching
+  console.log(`[pipeline] Pre-phase: Computing CIDs...`);
   onProgress?.({
     current: 0,
     total: sources.length,
     message: "Preparing cache keys...",
   });
   const cidMap = await ensureSourceCids(sources);
+  console.log(`[pipeline] CIDs computed: ${cidMap.size}/${sources.length} sources have CIDs`);
 
   // Phase 1: Transcribe each source (with caching)
+  console.log(`[pipeline] Phase 1: Transcribing ${sources.length} source(s)...`);
   for (let i = 0; i < sources.length; i++) {
     const source = sources[i];
     const cid = cidMap.get(source.id);
@@ -112,19 +118,26 @@ export async function runPipeline(
       message: `Transcribing ${source.name}...`,
     });
 
+    console.log(`[pipeline] Phase 1: Loading file "${source.name}" from ${source.path}`);
     const file = await loadFileFromPath(source.path, source.name);
+    console.log(`[pipeline] Phase 1: File loaded (${(file.size / 1024 / 1024).toFixed(1)} MB), transcribing...`);
     const transcript = await transcribeFile(file, cid);
     const words = mapTranscriptToWords(transcript, source.id);
+    console.log(`[pipeline] Phase 1: "${source.name}" → ${words.length} words from ElevenLabs`);
 
-    // Track sources with no words (transcriptless)
+    // Track sources with no speech for video-only group creation later
     if (words.length === 0) {
-      transcriptlessSourceIds.push(source.id);
+      const fallbackDuration = source.duration ?? 30;
+      console.log(`[pipeline] Phase 1: No speech detected, will create video-only group (0-${fallbackDuration}s)`);
+      sourcesWithNoSpeech.push({ sourceId: source.id, duration: fallbackDuration });
     }
 
     allWords.push(...words);
   }
+  console.log(`[pipeline] Phase 1 COMPLETE: ${allWords.length} total words`);
 
   // Phase 2: Group words by source
+  console.log(`[pipeline] Phase 2: Grouping words...`);
   onProgress?.({
     current: 1,
     total: 2,
@@ -133,16 +146,18 @@ export async function runPipeline(
 
   const wordsBySource = new Map<string, Word[]>();
   for (const word of allWords) {
-    const sourceId = word.sourceId;
-    if (!wordsBySource.has(sourceId)) {
-      wordsBySource.set(sourceId, []);
+    if (!wordsBySource.has(word.sourceId)) {
+      wordsBySource.set(word.sourceId, []);
     }
-    wordsBySource.get(sourceId)!.push(word);
+    wordsBySource.get(word.sourceId)!.push(word);
   }
+
+  console.log(`[pipeline] Phase 2: ${wordsBySource.size} source(s) with words`);
 
   let groupOffset = 0;
   for (const [sourceId, words] of wordsBySource) {
     const groups = groupWords(words, sourceId);
+    console.log(`[pipeline] Phase 2: Source ${sourceId} → ${groups.length} groups from ${words.length} words`);
     // Offset group IDs to be globally unique
     const prefixedGroups = groups.map((g, idx) => ({
       ...g,
@@ -152,27 +167,76 @@ export async function runPipeline(
     groupOffset += groups.length;
   }
 
-  // Create fallback groups for transcriptless sources
-  for (const sourceId of transcriptlessSourceIds) {
+  // Create groups for sources with no speech (video-only)
+  for (const { sourceId, duration } of sourcesWithNoSpeech) {
     const source = sources.find((s) => s.id === sourceId);
-    if (!source) continue;
-
-    const fallbackGroup: SegmentGroup = {
-      groupId: `group-${groupOffset++}`,
-      sourceId: source.id,
+    const group: SegmentGroup = {
+      groupId: `group-${groupOffset}`,
+      sourceId,
       segmentIds: [],
-      text: `[${source.name}]`,
+      text: "",
       startTime: 0,
-      endTime: source.duration ?? 10,
-      avgConfidence: 1,
+      endTime: duration,
+      avgConfidence: 0,
     };
-    allGroups.push(fallbackGroup);
+    allGroups.push(group);
+    groupOffset++;
+    console.log(`[pipeline] Phase 2: Created video-only group for "${source?.name}" (0s-${duration}s)`);
+  }
+
+  console.log(`[pipeline] Phase 2 COMPLETE: ${allGroups.length} total groups`);
+
+  // Phase 2.5: Describe sources with Gemini (optional, one call per source)
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (geminiKey) {
+    console.log(`[pipeline] Phase 2.5: Describing ${sources.length} source(s) with Gemini`);
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      const duration = source.duration ?? 30;
+
+      onProgress?.({
+        current: i + 1,
+        total: sources.length,
+        message: `Describing ${source.name}...`,
+      });
+
+      console.log(`[pipeline] Phase 2.5: Loading file "${source.name}" for description...`);
+      const file = await loadFileFromPath(source.path, source.name);
+
+      const cid = cidMap.get(source.id);
+      console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
+      const descriptions = await describeSourceFile(file, duration, cid);
+
+      if (descriptions && descriptions.length > 0) {
+        source.descriptions = descriptions;
+        onDescriptions?.(source.id, descriptions);
+        console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
+        console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
+      } else {
+        console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
+      }
+    }
+    console.log(`[pipeline] Phase 2.5 COMPLETE`);
+    console.log(`[pipeline] Phase 2.5 SUMMARY:`);
+    for (const source of sources) {
+      const count = source.descriptions?.length ?? 0;
+      console.log(`[pipeline]   "${source.name}" (${source.id}): ${count} descriptions`);
+      if (source.descriptions) {
+        for (const d of source.descriptions) {
+          console.log(`[pipeline]     [${d.start.toFixed(1)}s - ${d.end.toFixed(1)}s] ${d.description}`);
+        }
+      }
+    }
+  } else {
+    console.log("[pipeline] Phase 2.5: SKIPPED (no VITE_GEMINI_API_KEY)");
   }
 
   // Phase 3: Assembly cut (if multiple groups)
+  console.log(`[pipeline] Phase 3: Assembly cut (${allGroups.length} groups, ${sources.length} sources)`);
   let orderedGroupIds: string[];
 
   if (allGroups.length > 1 && sources.length > 1) {
+    console.log(`[pipeline] Phase 3: Multiple sources detected, calling Claude for narrative ordering...`);
     onProgress?.({
       current: 2,
       total: 2,
@@ -189,10 +253,17 @@ export async function runPipeline(
         segmentGroups: allGroups,
         sourceNames,
       });
+      console.log(`[pipeline] Phase 3: Assembly cut returned ${result.orderedSegmentIds.length} ordered IDs`);
+      console.log(`[pipeline] Phase 3: Narrative summary: "${result.narrativeSummary?.substring(0, 100)}"`);
 
       // Use Claude's recommended order, filtering to valid IDs
       const validIds = new Set(allGroups.map((g) => g.groupId));
       orderedGroupIds = result.orderedSegmentIds.filter((id) => validIds.has(id));
+
+      const missingCount = allGroups.length - orderedGroupIds.length;
+      if (missingCount > 0) {
+        console.warn(`[pipeline] Phase 3: ${missingCount} groups missing from Claude's response, appending at end`);
+      }
 
       // Add any missing groups at the end (in case Claude missed some)
       for (const group of allGroups) {
@@ -202,24 +273,39 @@ export async function runPipeline(
       }
     } catch (error) {
       // If assembly cut fails, just use chronological order
-      console.warn("Assembly cut failed, using chronological order:", error);
+      console.error("[pipeline] Phase 3: Assembly cut FAILED:", error);
       orderedGroupIds = allGroups.map((g) => g.groupId);
     }
   } else {
-    // Single source or few groups: use chronological order
+    console.log(`[pipeline] Phase 3: Single source or <=1 groups, using chronological order`);
     orderedGroupIds = allGroups.map((g) => g.groupId);
   }
 
-  // Phase 4: Extract sentences from groups
-  const sentences = extractSentences(allGroups, allWords);
-  const orderedSentenceIds = sentences.map((s) => s.sentenceId);
+  // Generate sentences by splitting words on sentence boundaries
+  const sentenceGroups = groupWordsForAssembly(allWords);
+  const sentences: Sentence[] = sentenceGroups.map((g, idx) => ({
+    sentenceId: `sentence-${idx}`,
+    sourceId: g.sourceId,
+    wordIds: g.segmentIds, // segmentIds are actually word IDs
+    text: g.text,
+    startTime: g.startTime,
+    endTime: g.endTime,
+    originalGroupId: g.groupId,
+  }));
+
+  const transcriptlessSourceIds = sourcesWithNoSpeech.map((s) => s.sourceId);
+
+  console.log(`[pipeline] ===== PIPELINE COMPLETE =====`);
+  console.log(`[pipeline] Result: ${allWords.length} words, ${allGroups.length} groups, ${sentences.length} sentences, ${orderedGroupIds.length} ordered IDs`);
+  console.log(`[pipeline] Final words:`, JSON.stringify(allWords, null, 2));
+  console.log(`[pipeline] Final groups:`, JSON.stringify(allGroups, null, 2));
+  console.log(`[pipeline] Ordered IDs:`, JSON.stringify(orderedGroupIds));
 
   return {
     words: allWords,
     segmentGroups: allGroups,
     orderedGroupIds,
     sentences,
-    orderedSentenceIds,
     transcriptlessSourceIds,
   };
 }

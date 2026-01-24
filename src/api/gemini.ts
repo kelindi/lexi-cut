@@ -23,8 +23,10 @@ function getApiKey(): string {
 export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeType: string }> {
   const apiKey = getApiKey();
   const mimeType = file.type || "video/mp4";
+  console.log(`[gemini] uploadVideoFile: name="${file.name}", size=${(file.size / 1024 / 1024).toFixed(1)}MB, mimeType=${mimeType}`);
 
   // Step 1: Initiate resumable upload
+  console.log(`[gemini] Step 1: Initiating resumable upload...`);
   const startResponse = await fetch(`${UPLOAD_URL}?key=${apiKey}`, {
     method: "POST",
     headers: {
@@ -48,8 +50,10 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   if (!uploadUrl) {
     throw new Error("Gemini upload init did not return an upload URL");
   }
+  console.log(`[gemini] Step 1: Upload URL obtained`);
 
   // Step 2: Upload file bytes
+  console.log(`[gemini] Step 2: Uploading ${(file.size / 1024 / 1024).toFixed(1)}MB...`);
   const fileBuffer = await file.arrayBuffer();
   const uploadResponse = await fetch(uploadUrl, {
     method: "PUT",
@@ -68,10 +72,14 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
 
   const uploadResult = (await uploadResponse.json()) as GeminiFileUploadResponse;
   const fileName = uploadResult.file.name;
+  console.log(`[gemini] Step 2: Upload complete, fileName=${fileName}`);
 
   // Step 3: Poll until file is ACTIVE
+  console.log(`[gemini] Step 3: Polling for ACTIVE state (timeout: ${POLL_TIMEOUT_MS / 1000}s)...`);
+  let pollAttempt = 0;
   const startTime = Date.now();
   while (Date.now() - startTime < POLL_TIMEOUT_MS) {
+    pollAttempt++;
     // fileName is already prefixed with "files/" (e.g., "files/abc123"),
     // so use the base URL without the /files suffix
     const statusResponse = await fetch(
@@ -83,13 +91,17 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
     }
 
     const status = (await statusResponse.json()) as GeminiFileStatusResponse;
+    console.log(`[gemini] Step 3: Poll #${pollAttempt} → state=${status.state}`);
 
     if (status.state === "ACTIVE") {
+      console.log(`[gemini] Step 3: File is ACTIVE (uri: ${status.uri})`);
       return { uri: status.uri, mimeType };
     }
 
     if (status.state === "FAILED") {
-      throw new Error("Gemini file processing failed");
+      const reason = status.error?.message ?? "unknown reason";
+      console.error(`[gemini] Step 3: File processing FAILED: ${reason}`, status.error);
+      throw new Error(`Gemini file processing failed: ${reason}`);
     }
 
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -98,19 +110,26 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   throw new Error("Gemini file processing timed out (60s)");
 }
 
-export async function queryVideoTimeRange(
+export interface SourceDescriptionResult {
+  start: number;
+  end: number;
+  description: string;
+}
+
+export async function describeSource(
   fileUri: string,
   mimeType: string,
-  startTime: number,
-  endTime: number,
-  spokenText: string
-): Promise<string> {
+  durationSeconds: number
+): Promise<SourceDescriptionResult[]> {
   const apiKey = getApiKey();
+  console.log(`[gemini] describeSource: requesting time-ranged descriptions (duration: ${durationSeconds}s)`);
 
-  const prompt = `Analyze the video from ${startTime.toFixed(1)}s to ${endTime.toFixed(1)}s.
-The spoken words during this time are: "${spokenText}"
+  const prompt = `Watch this video (${durationSeconds} seconds long) and describe what is visually happening throughout. Break the video into logical segments based on changes in action, subject, or setting. For each segment, provide the start time, end time, and a concise 1-2 sentence description focusing on actions, subjects, and setting.
 
-Provide a concise description (1-2 sentences) of what is happening in the video during this timeframe, combining visual and audio context. Focus on actions, subjects, and setting that would help a video editor understand the content of this clip.`;
+Rules:
+- Times are in seconds
+- Segments should cover the entire video without gaps
+- Each segment should be a visually distinct moment`;
 
   const body = {
     contents: [
@@ -121,6 +140,21 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
         ],
       },
     ],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            start: { type: "NUMBER", description: "Segment start time in seconds" },
+            end: { type: "NUMBER", description: "Segment end time in seconds" },
+            description: { type: "STRING", description: "Concise 1-2 sentence visual description" },
+          },
+          required: ["start", "end", "description"],
+        },
+      },
+    },
   };
 
   const response = await fetch(`${GENERATE_URL}?key=${apiKey}`, {
@@ -130,11 +164,13 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
   });
 
   if (response.status === 429) {
+    console.warn(`[gemini] describeSource: Rate limited (429)`);
     throw new RateLimitError("Gemini rate limit exceeded");
   }
 
   if (!response.ok) {
     const errorText = await response.text();
+    console.error(`[gemini] describeSource: Failed (${response.status}): ${errorText}`);
     throw new Error(`Gemini generateContent failed (${response.status}): ${errorText}`);
   }
 
@@ -142,10 +178,15 @@ Provide a concise description (1-2 sentences) of what is happening in the video 
   const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
   if (!text) {
+    console.error(`[gemini] describeSource: Empty response. Full result:`, JSON.stringify(result, null, 2));
     throw new Error("Gemini returned empty response");
   }
 
-  return text.trim();
+  console.log(`[gemini] describeSource: Got ${text.length} chars response`);
+
+  const parsed = JSON.parse(text) as SourceDescriptionResult[];
+  console.log(`[gemini] describeSource: Parsed ${parsed.length} time-ranged descriptions`);
+  return parsed;
 }
 
 export class RateLimitError extends Error {
