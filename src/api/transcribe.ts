@@ -1,9 +1,25 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import type { ElevenLabsTranscriptResponse, Segment } from "../types";
+import { getCachedTranscription, setCachedTranscription } from "./cache";
 
 const API_URL = "https://api.elevenlabs.io/v1/speech-to-text";
 
-export async function transcribeFile(file: File): Promise<ElevenLabsTranscriptResponse> {
+/**
+ * Transcribe a file with optional CID-based caching.
+ * If a CID is provided and a cached result exists, returns the cached result.
+ * Otherwise calls the ElevenLabs API and caches the result.
+ */
+export async function transcribeFile(file: File, cid?: string): Promise<ElevenLabsTranscriptResponse> {
+  // Check cache if CID provided
+  if (cid) {
+    const cached = await getCachedTranscription(cid);
+    if (cached) {
+      console.log(`Cache hit for CID ${cid.substring(0, 8)}...`);
+      return cached;
+    }
+  }
+
+  // Call ElevenLabs API
   const apiKey = import.meta.env.VITE_ELEVENLABS_API_KEY;
   if (!apiKey) {
     throw new Error("Missing VITE_ELEVENLABS_API_KEY in environment variables");
@@ -28,7 +44,15 @@ export async function transcribeFile(file: File): Promise<ElevenLabsTranscriptRe
     throw new Error(`Transcription failed (${response.status}): ${errorText}`);
   }
 
-  return response.json() as Promise<ElevenLabsTranscriptResponse>;
+  const result = await response.json() as ElevenLabsTranscriptResponse;
+
+  // Cache result if CID provided
+  if (cid) {
+    await setCachedTranscription(cid, result);
+    console.log(`Cached transcription for CID ${cid.substring(0, 8)}...`);
+  }
+
+  return result;
 }
 
 export function mapTranscriptToSegments(

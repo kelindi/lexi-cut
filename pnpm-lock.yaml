@@ -4,7 +4,52 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
-importers:
+dependencies:
+  '@base-ui-components/react':
+    specifier: 1.0.0-rc.0
+    version: 1.0.0-rc.0(@types/react@19.2.9)(react-dom@19.2.3)(react@19.2.3)
+  '@base-ui/react':
+    specifier: ^1.1.0
+    version: 1.1.0(@types/react@19.2.9)(react-dom@19.2.3)(react@19.2.3)
+  '@dnd-kit/core':
+    specifier: ^6.3.1
+    version: 6.3.1(react-dom@19.2.3)(react@19.2.3)
+  '@dnd-kit/sortable':
+    specifier: ^10.0.0
+    version: 10.0.0(@dnd-kit/core@6.3.1)(react@19.2.3)
+  '@dnd-kit/utilities':
+    specifier: ^3.2.2
+    version: 3.2.2(react@19.2.3)
+  '@phosphor-icons/react':
+    specifier: ^2.1.10
+    version: 2.1.10(react-dom@19.2.3)(react@19.2.3)
+  '@remotion/player':
+    specifier: ^4.0.409
+    version: 4.0.409(react-dom@19.2.3)(react@19.2.3)
+  '@tauri-apps/api':
+    specifier: ^2
+    version: 2.9.1
+  '@tauri-apps/plugin-dialog':
+    specifier: ^2.6.0
+    version: 2.6.0
+  '@tauri-apps/plugin-http':
+    specifier: ^2.5.6
+    version: 2.5.6
+  '@tauri-apps/plugin-opener':
+    specifier: ^2
+    version: 2.5.3
+  react:
+    specifier: ^19.1.0
+    version: 19.2.3
+  react-dom:
+    specifier: ^19.1.0
+    version: 19.2.3(react@19.2.3)
+  remotion:
+    specifier: ^4.0.409
+    version: 4.0.409(react-dom@19.2.3)(react@19.2.3)
+  zustand:
+    specifier: ^5.0.10
+    version: 5.0.10(@types/react@19.2.9)(react@19.2.3)
 
   .:
     dependencies:
@@ -212,29 +257,50 @@ packages:
       '@types/react':
         optional: true
 
-  '@dnd-kit/accessibility@3.1.1':
+  /@dnd-kit/accessibility@3.1.1(react@19.2.3):
     resolution: {integrity: sha512-2P+YgaXF+gRsIihwwY1gCsQSYnu9Zyj2py8kY5fFvUM1qm2WA2u639R6YNVfU4GWr+ZM5mqEsfHZZLoRONbemw==}
     peerDependencies:
       react: '>=16.8.0'
+    dependencies:
+      react: 19.2.3
+      tslib: 2.8.1
+    dev: false
 
-  '@dnd-kit/core@6.3.1':
+  /@dnd-kit/core@6.3.1(react-dom@19.2.3)(react@19.2.3):
     resolution: {integrity: sha512-xkGBRQQab4RLwgXxoqETICr6S5JlogafbhNsidmrkVv2YRs5MLwpjoF2qpiGjQt8S9AoxtIV603s0GIUpY5eYQ==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
+    dependencies:
+      '@dnd-kit/accessibility': 3.1.1(react@19.2.3)
+      '@dnd-kit/utilities': 3.2.2(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      tslib: 2.8.1
+    dev: false
 
-  '@dnd-kit/sortable@10.0.0':
+  /@dnd-kit/sortable@10.0.0(@dnd-kit/core@6.3.1)(react@19.2.3):
     resolution: {integrity: sha512-+xqhmIIzvAYMGfBYYnbKuNicfSsk4RksY2XdmJhT+HAC01nix6fHCztU68jooFiMUB01Ky3F0FyOvhG/BZrWkg==}
     peerDependencies:
       '@dnd-kit/core': ^6.3.0
       react: '>=16.8.0'
+    dependencies:
+      '@dnd-kit/core': 6.3.1(react-dom@19.2.3)(react@19.2.3)
+      '@dnd-kit/utilities': 3.2.2(react@19.2.3)
+      react: 19.2.3
+      tslib: 2.8.1
+    dev: false
 
-  '@dnd-kit/utilities@3.2.2':
+  /@dnd-kit/utilities@3.2.2(react@19.2.3):
     resolution: {integrity: sha512-+MKAJEOfaBe5SmV6t34p80MMKhjvUz0vRrvVJbPT0WElzaOJ/1xs+D+KDv+tD/NE5ujfrChEcshd4fLn0wpiqg==}
     peerDependencies:
       react: '>=16.8.0'
+    dependencies:
+      react: 19.2.3
+      tslib: 2.8.1
+    dev: false
 
-  '@esbuild/aix-ppc64@0.27.2':
+  /@esbuild/aix-ppc64@0.27.2:
     resolution: {integrity: sha512-GZMB+a0mOMZs4MpDbj8RJp4cw+w1WV5NYD6xzgvzUJ5Ek2jerwfO2eADyI6ExDSUED+1X8aMbegahsJi+8mgpw==}
     engines: {node: '>=18'}
     cpu: [ppc64]
@@ -428,13 +494,18 @@ packages:
       react: '>= 16.8'
       react-dom: '>= 16.8'
 
-  '@remotion/player@4.0.409':
+  /@remotion/player@4.0.409(react-dom@19.2.3)(react@19.2.3):
     resolution: {integrity: sha512-MIIBLswIFkXoaT/1LtINkBsLMmgMTGxilUjx5g6QC4XABOCNprBF7psVHrlFT/PLfBZdXqgWGZ+QOjI/9DQCiA==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
+    dependencies:
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+      remotion: 4.0.409(react-dom@19.2.3)(react@19.2.3)
+    dev: false
 
-  '@rolldown/pluginutils@1.0.0-beta.27':
+  /@rolldown/pluginutils@1.0.0-beta.27:
     resolution: {integrity: sha512-+d0F4MKMCbeVUJwG96uQ4SgAznZNSq93I3V+9NHA4OpvqG8mRCpGdKmK8l/dl02h2CCDHwW2FqilnTyDcAnqjA==}
 
   '@rollup/rollup-android-arm-eabi@4.56.0':
@@ -729,10 +800,13 @@ packages:
   '@tauri-apps/plugin-dialog@2.6.0':
     resolution: {integrity: sha512-q4Uq3eY87TdcYzXACiYSPhmpBA76shgmQswGkSVio4C82Sz2W4iehe9TnKYwbq7weHiL88Yw19XZm7v28+Micg==}
 
-  '@tauri-apps/plugin-http@2.5.6':
+  /@tauri-apps/plugin-http@2.5.6:
     resolution: {integrity: sha512-KhCK3TDNDF4vdz75/j+KNQipYKf+295Visa8r32QcXScg0+D3JwShcCM6D+FN8WuDF24X3KSiAB8QtRxW6jKRA==}
+    dependencies:
+      '@tauri-apps/api': 2.9.1
+    dev: false
 
-  '@tauri-apps/plugin-opener@2.5.3':
+  /@tauri-apps/plugin-opener@2.5.3:
     resolution: {integrity: sha512-CCcUltXMOfUEArbf3db3kCE7Ggy1ExBEBl51Ko2ODJ6GDYHRp1nSNlQm5uNCFY5k7/ufaK5Ib3Du/Zir19IYQQ==}
 
   '@types/babel__core@7.20.5':
@@ -960,13 +1034,17 @@ packages:
     resolution: {integrity: sha512-Ku/hhYbVjOQnXDZFv2+RibmLFGwFdeeKHFcOTlrt7xplBnya5OGn/hIRDsqDiSUcfORsDC7MPxwork8jBwsIWA==}
     engines: {node: '>=0.10.0'}
 
-  remotion@4.0.409:
+  /remotion@4.0.409(react-dom@19.2.3)(react@19.2.3):
     resolution: {integrity: sha512-+NFkLJQcbxOKwosTuyvrQbxWOK+HpP+og3omznDB0S9hsX4BUGL0peanN/6uk4HtVXMHuFs7meUulKviyQ1Egw==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
+    dependencies:
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+    dev: false
 
-  reselect@5.1.1:
+  /reselect@5.1.1:
     resolution: {integrity: sha512-K/BG6eIky/SBpzfHZv/dd+9JBFiS4SWV7FIujVyJRux6e45+73RaUHXLmIR1f7WOMaQ0U1km6qwklRQxpJJY0w==}
 
   rollup@4.56.0:
@@ -999,10 +1077,11 @@ packages:
     resolution: {integrity: sha512-j2Zq4NyQYG5XMST4cbs02Ak8iJUdxRM0XI5QyxXuZOzKOINmWurp3smXu3y5wDcJrptwpSjgXHzIQxR0omXljQ==}
     engines: {node: '>=12.0.0'}
 
-  tslib@2.8.1:
+  /tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
+    dev: false
 
-  typescript@5.8.3:
+  /typescript@5.8.3:
     resolution: {integrity: sha512-p1diW6TqL9L07nNxvRMM7hMMw4c5XOo/1ibL4aAIGmSAt9slTE1Xgw5KWuof2uTOvCg9BY7ZRi+GaF+7sfgPeQ==}
     engines: {node: '>=14.17'}
     hasBin: true
