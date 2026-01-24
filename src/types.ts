@@ -94,3 +94,33 @@ export interface AssemblyCutRequest {
   sourceNames: Record<string, string>;
 }
 
+// --- Gemini Video Understanding API Types ---
+
+export interface GeminiFileUploadResponse {
+  file: {
+    name: string;
+    uri: string;
+    state: "PROCESSING" | "ACTIVE" | "FAILED";
+  };
+}
+
+export interface GeminiFileStatusResponse {
+  name: string;
+  uri: string;
+  state: "PROCESSING" | "ACTIVE" | "FAILED";
+}
+
+export interface GeminiGenerateContentResponse {
+  candidates: Array<{
+    content: {
+      parts: Array<{ text: string }>;
+    };
+  }>;
+}
+
+export interface DescriptionProgress {
+  phase: "uploading" | "processing" | "querying";
+  current: number;
+  total: number;
+}
+

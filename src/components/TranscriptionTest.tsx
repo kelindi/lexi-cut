@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { transcribeFile, mapTranscriptToSegments } from "../api/transcribe";
-import type { Segment, ElevenLabsTranscriptResponse } from "../types";
+import { describeSegments } from "../api/describeSegments";
+import type { Segment, ElevenLabsTranscriptResponse, DescriptionProgress } from "../types";
 
 export function TranscriptionTest() {
   const [file, setFile] = useState<File | null>(null);
@@ -8,6 +9,8 @@ export function TranscriptionTest() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawResponse, setRawResponse] = useState<ElevenLabsTranscriptResponse | null>(null);
+  const [descriptionProgress, setDescriptionProgress] = useState<DescriptionProgress | null>(null);
+  const [descriptionError, setDescriptionError] = useState<string | null>(null);
 
   async function handleTranscribe() {
     if (!file) return;
@@ -16,6 +19,8 @@ export function TranscriptionTest() {
     setError(null);
     setSegments([]);
     setRawResponse(null);
+    setDescriptionProgress(null);
+    setDescriptionError(null);
 
     try {
       const response = await transcribeFile(file);
@@ -23,6 +28,20 @@ export function TranscriptionTest() {
       const sourceId = file.name;
       const mapped = mapTranscriptToSegments(response, sourceId);
       setSegments(mapped);
+
+      // Automatically generate descriptions via Gemini
+      try {
+        const described = await describeSegments(file, mapped, (progress) => {
+          setDescriptionProgress(progress);
+        });
+        setSegments(described);
+      } catch (descErr) {
+        setDescriptionError(
+          descErr instanceof Error ? descErr.message : "Description generation failed"
+        );
+      } finally {
+        setDescriptionProgress(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Transcription failed");
     } finally {
@@ -53,6 +72,16 @@ export function TranscriptionTest() {
       </div>
 
       {error && <p style={{ color: "red" }}>{error}</p>}
+      {descriptionError && <p style={{ color: "orange" }}>Description warning: {descriptionError}</p>}
+
+      {descriptionProgress && (
+        <p style={{ color: "#555" }}>
+          {descriptionProgress.phase === "uploading" && "Uploading video to Gemini..."}
+          {descriptionProgress.phase === "processing" && "Processing video..."}
+          {descriptionProgress.phase === "querying" &&
+            `Generating descriptions (${descriptionProgress.current}/${descriptionProgress.total})...`}
+        </p>
+      )}
 
       {rawResponse && (
         <div style={{ marginBottom: "1rem", fontSize: "0.85rem", color: "#666" }}>
@@ -77,6 +106,7 @@ export function TranscriptionTest() {
                 <th style={{ textAlign: "right", borderBottom: "1px solid #ccc", padding: "4px" }}>Start (s)</th>
                 <th style={{ textAlign: "right", borderBottom: "1px solid #ccc", padding: "4px" }}>End (s)</th>
                 <th style={{ textAlign: "right", borderBottom: "1px solid #ccc", padding: "4px" }}>Confidence</th>
+                <th style={{ textAlign: "left", borderBottom: "1px solid #ccc", padding: "4px" }}>Description</th>
               </tr>
             </thead>
             <tbody>
@@ -86,6 +116,7 @@ export function TranscriptionTest() {
                   <td style={{ textAlign: "right", padding: "4px" }}>{seg.text?.start.toFixed(3)}</td>
                   <td style={{ textAlign: "right", padding: "4px" }}>{seg.text?.end.toFixed(3)}</td>
                   <td style={{ textAlign: "right", padding: "4px" }}>{seg.text?.confidence.toFixed(4)}</td>
+                  <td style={{ padding: "4px", fontSize: "0.75rem", color: "#555" }}>{seg.description}</td>
                 </tr>
               ))}
             </tbody>
