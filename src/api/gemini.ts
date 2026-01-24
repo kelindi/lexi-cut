@@ -1,3 +1,4 @@
+import { fetch } from "@tauri-apps/plugin-http";
 import type {
   GeminiFileUploadResponse,
   GeminiFileStatusResponse,
@@ -5,7 +6,6 @@ import type {
 } from "../types";
 
 const UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files";
-const FILES_URL = "https://generativelanguage.googleapis.com/v1beta/files";
 const GENERATE_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent";
 
@@ -50,6 +50,7 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   }
 
   // Step 2: Upload file bytes
+  const fileBuffer = await file.arrayBuffer();
   const uploadResponse = await fetch(uploadUrl, {
     method: "PUT",
     headers: {
@@ -57,7 +58,7 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
       "X-Goog-Upload-Offset": "0",
       "Content-Type": mimeType,
     },
-    body: file,
+    body: fileBuffer,
   });
 
   if (!uploadResponse.ok) {
@@ -71,7 +72,11 @@ export async function uploadVideoFile(file: File): Promise<{ uri: string; mimeTy
   // Step 3: Poll until file is ACTIVE
   const startTime = Date.now();
   while (Date.now() - startTime < POLL_TIMEOUT_MS) {
-    const statusResponse = await fetch(`${FILES_URL}/${fileName}?key=${apiKey}`);
+    // fileName is already prefixed with "files/" (e.g., "files/abc123"),
+    // so use the base URL without the /files suffix
+    const statusResponse = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`
+    );
     if (!statusResponse.ok) {
       const errorText = await statusResponse.text();
       throw new Error(`Gemini file status check failed (${statusResponse.status}): ${errorText}`);
