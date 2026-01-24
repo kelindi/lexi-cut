@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { fetch } from "@tauri-apps/plugin-http";
 import { CircleNotch, Play, Copy, Check, UploadSimple } from "@phosphor-icons/react";
 import { uploadVideoFile } from "../../api/gemini";
 
@@ -75,10 +76,6 @@ export function GeminiTest() {
           ],
         }),
       });
-
-      if (res.status === 429) {
-        throw new Error("Rate limit exceeded. Wait a moment and try again.");
-      }
 
       if (!res.ok) {
         const errorText = await res.text();
