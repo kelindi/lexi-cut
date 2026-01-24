@@ -24,8 +24,10 @@ export function VideoPanel() {
 
   // Only subscribe to what we need - NOT currentFrame (causes 30fps re-renders)
   const isPlaying = usePlaybackStore((s) => s.isPlaying);
+  const seekRequest = usePlaybackStore((s) => s.seekRequest);
   const setCurrentFrame = usePlaybackStore((s) => s.setCurrentFrame);
   const setDurationInFrames = usePlaybackStore((s) => s.setDurationInFrames);
+  const clearSeekRequest = usePlaybackStore((s) => s.clearSeekRequest);
   const play = usePlaybackStore((s) => s.play);
   const pause = usePlaybackStore((s) => s.pause);
 
@@ -57,6 +59,15 @@ export function VideoPanel() {
     }
   }, [isPlaying, playerReady]);
 
+  // Handle external seek requests
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player || !seekRequest) return;
+
+    player.seekTo(seekRequest.frame);
+    clearSeekRequest();
+  }, [seekRequest, clearSeekRequest, playerReady]);
+
   // Listen to frame updates from the player and sync back to store
   useEffect(() => {
     const player = playerRef.current;
@@ -85,13 +96,13 @@ export function VideoPanel() {
       playerRef.current?.seekTo(frame);
       setCurrentFrame(frame);
     },
-    [setCurrentFrame]
+    [setCurrentFrame],
   );
 
   // Memoize inputProps to prevent unnecessary Player re-renders
   const inputProps = useMemo(
     () => ({ segments, videoUrls }),
-    [segments, videoUrls]
+    [segments, videoUrls],
   );
 
   if (segments.length === 0) {
@@ -105,7 +116,7 @@ export function VideoPanel() {
   return (
     <div className="flex h-full flex-col">
       {/* Video player container - constrained height */}
-      <div className="flex flex-1 min-h-0 items-center justify-center bg-black p-2">
+      <div className="flex flex-1 min-h-0 items-center justify-center bg-black p-1">
         <div
           className="relative"
           style={{
