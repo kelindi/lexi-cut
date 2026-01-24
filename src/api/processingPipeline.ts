@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Source, Segment, SegmentGroup, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToSegments } from "./transcribe";
 import { groupSegments } from "./segmentGrouping";
+import { describeSegments } from "./describeSegments";
 import { requestAssemblyCut } from "./assemblyCut";
 
 export interface PipelineResult {
@@ -89,6 +90,49 @@ export async function runPipeline(
     }));
     allGroups.push(...prefixedGroups);
     groupOffset += groups.length;
+  }
+
+  // Phase 2.5: Describe segments with Gemini (optional)
+  const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (geminiKey) {
+    for (let i = 0; i < sources.length; i++) {
+      const source = sources[i];
+      onProgress?.({
+        current: i + 1,
+        total: sources.length,
+        message: `Describing clips from ${source.name}...`,
+      });
+
+      const file = await loadFileFromPath(source.path, source.name);
+      const sourceSegments = allSegments.filter(
+        (s) => s.text?.sourceId === source.id
+      );
+
+      if (sourceSegments.length === 0) continue;
+
+      const result = await describeSegments(file, sourceSegments);
+
+      // Update segments with descriptions
+      for (let j = 0; j < allSegments.length; j++) {
+        const enriched = result.segments.find((s) => s.id === allSegments[j].id);
+        if (enriched?.description) {
+          allSegments[j] = { ...allSegments[j], description: enriched.description };
+        }
+      }
+
+      // Derive group descriptions from first child segment
+      const sourceGroups = allGroups.filter((g) => g.sourceId === source.id);
+      for (const group of sourceGroups) {
+        const firstSegId = group.segmentIds[0];
+        const firstSeg = allSegments.find((s) => s.id === firstSegId);
+        if (firstSeg?.description) {
+          const idx = allGroups.indexOf(group);
+          if (idx !== -1) {
+            allGroups[idx] = { ...group, description: firstSeg.description };
+          }
+        }
+      }
+    }
   }
 
   // Phase 3: Assembly cut (if multiple groups)

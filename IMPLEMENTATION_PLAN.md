@@ -58,7 +58,7 @@ interface SegmentGroup {
 ## Stage 1: Add New Types
 
 **File:** `src/types/index.ts`
-**Status:** Not Started
+**Status:** Complete
 
 ### Add `VisualDescription` interface
 
@@ -118,7 +118,7 @@ export interface DescriptionProgress {
 ## Stage 2: Add Batched Gemini API Function
 
 **File:** `src/api/gemini.ts`
-**Status:** Not Started
+**Status:** Complete
 
 ### Add `queryVideoBatch()` function
 
@@ -217,7 +217,7 @@ Respond with ONLY valid JSON in this exact format:
 ## Stage 3: Rewrite `describeSegments.ts` with Batching
 
 **File:** `src/api/describeSegments.ts`
-**Status:** Not Started
+**Status:** Complete
 
 Replace the entire file contents with:
 
@@ -378,7 +378,7 @@ export function buildGroupDescription(desc: VisualDescription): string {
 ## Stage 4: Integrate into Processing Pipeline
 
 **File:** `src/api/processingPipeline.ts`
-**Status:** Not Started
+**Status:** Complete
 
 ### Add import
 
@@ -460,10 +460,11 @@ Insert this block after the Phase 2 grouping loop (after the `groupOffset += gro
 **File:** `src/api/assemblyCut.ts`
 **Status:** Not Started
 
-### Update the `buildPrompt()` function
+### Update the `buildPrompt()` function (line 102-123)
 
-The segment groups passed to `buildPrompt()` now carry a `.description` field. Update the user prompt to include visual context. Replace the `buildPrompt` function body:
+The segment groups now carry an optional `.description` field. Update the user prompt to include visual context when available.
 
+**Current code:**
 ```typescript
 function buildPrompt(request: AssemblyCutRequest): {
   system: string;
@@ -475,7 +476,33 @@ function buildPrompt(request: AssemblyCutRequest): {
     .map(([id, name]) => `- ${id}: ${name}`)
     .join("\n");
 
-  // Format groups with descriptions if available
+  const user = `Here are the transcribed segment groups from ${sourceCount} source file(s):
+
+Source files:
+${sourceList}
+
+Segment groups:
+${JSON.stringify(request.segmentGroups, null, 2)}
+
+Please analyze these segments and return the assembly cut as JSON.`;
+
+  return { system: SYSTEM_PROMPT, user };
+}
+```
+
+**Replace with:**
+```typescript
+function buildPrompt(request: AssemblyCutRequest): {
+  system: string;
+  user: string;
+} {
+  const sourceCount = Object.keys(request.sourceNames).length;
+
+  const sourceList = Object.entries(request.sourceNames)
+    .map(([id, name]) => `- ${id}: ${name}`)
+    .join("\n");
+
+  // Include description as visualDescription when available
   const groupsForPrompt = request.segmentGroups.map((g) => ({
     groupId: g.groupId,
     sourceId: g.sourceId,
@@ -486,6 +513,8 @@ function buildPrompt(request: AssemblyCutRequest): {
     ...(g.description ? { visualDescription: g.description } : {}),
   }));
 
+  const hasDescriptions = request.segmentGroups.some((g) => g.description);
+
   const user = `Here are the transcribed segment groups from ${sourceCount} source file(s):
 
 Source files:
@@ -494,15 +523,15 @@ ${sourceList}
 Segment groups:
 ${JSON.stringify(groupsForPrompt, null, 2)}
 
-${request.segmentGroups.some((g) => g.description) ? "Each group includes a visual description of what is happening on screen. Use this context to make better narrative ordering decisions — group related scenes together, identify retakes of the same shot, and ensure visual continuity.\n\n" : ""}Please analyze these segments and return the assembly cut as JSON.`;
+${hasDescriptions ? "Each group includes a visual description of what is happening on screen. Use this context to make better narrative ordering decisions — group related scenes together, identify retakes of the same shot, and ensure visual continuity.\n\n" : ""}Please analyze these segments and return the assembly cut as JSON.`;
 
   return { system: SYSTEM_PROMPT, user };
 }
 ```
 
-### Update SYSTEM_PROMPT to mention visual context
+### Update SYSTEM_PROMPT (line 15-41)
 
-Add this line to the existing `SYSTEM_PROMPT` rules section (after the existing rules):
+Add this rule to the existing rules list in `SYSTEM_PROMPT` (after the line about responding with JSON):
 
 ```
 - When visual descriptions are provided, use them to identify same-scene retakes, group visually related content, and ensure smooth visual transitions between segments.
@@ -512,30 +541,37 @@ Add this line to the existing `SYSTEM_PROMPT` rules section (after the existing 
 
 ## Stage 6: Update Processing UI
 
-**File:** Find the component that displays `ProcessingPhase` labels (likely `ProcessingView.tsx` or similar in `src/components/`)
+**File:** `src/components/edit/ProcessingView.tsx`
 **Status:** Not Started
 
-Add a label mapping for the new `"describing"` phase:
+### Add `"describing"` to `PHASE_LABELS` (line 11-18)
 
-```typescript
-// In whatever component maps ProcessingPhase to display text:
-case "describing":
-  return "Analyzing video content...";
-```
-
-If using an object/record pattern:
-
+**Current code:**
 ```typescript
 const PHASE_LABELS: Record<ProcessingPhase, string> = {
-  idle: "",
-  transcribing: "Transcribing...",
+  idle: "Ready",
+  transcribing: "Transcribing audio...",
   grouping: "Grouping segments...",
-  describing: "Analyzing video content...",  // ← ADD
-  assembling: "Analyzing narrative flow...",
-  ready: "Ready",
+  assembling: "Analyzing narrative...",
+  ready: "Complete",
   error: "Error",
 };
 ```
+
+**Replace with:**
+```typescript
+const PHASE_LABELS: Record<ProcessingPhase, string> = {
+  idle: "Ready",
+  transcribing: "Transcribing audio...",
+  grouping: "Grouping segments...",
+  describing: "Analyzing video content...",
+  assembling: "Analyzing narrative...",
+  ready: "Complete",
+  error: "Error",
+};
+```
+
+This is a one-line addition. TypeScript will enforce this since `PHASE_LABELS` is typed as `Record<ProcessingPhase, string>` and `ProcessingPhase` now includes `"describing"`.
 
 ---
 

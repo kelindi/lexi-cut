@@ -42,6 +42,8 @@ export function EditPage() {
           setPhase("transcribing");
         } else if (p.message?.includes("Grouping")) {
           setPhase("grouping");
+        } else if (p.message?.includes("Describing")) {
+          setPhase("describing");
         } else if (p.message?.includes("Analyzing")) {
           setPhase("assembling");
         }

@@ -154,3 +154,83 @@ export class RateLimitError extends Error {
     this.name = "RateLimitError";
   }
 }
+
+export interface BatchSegment {
+  segmentId: string;
+  startTime: number;
+  endTime: number;
+  text: string;
+}
+
+export async function queryVideoBatch(
+  fileUri: string,
+  mimeType: string,
+  segments: BatchSegment[]
+): Promise<Record<string, { summary: string; person?: string; activity?: string; setting?: string }>> {
+  const apiKey = getApiKey();
+
+  const clipList = segments
+    .map(
+      (s, i) =>
+        `Clip ${i + 1} (ID: "${s.segmentId}"): ${s.startTime.toFixed(1)}s to ${s.endTime.toFixed(1)}s. Spoken text: "${s.text}"`
+    )
+    .join("\n");
+
+  const prompt = `Analyze the following clips from this video. For each clip, provide:
+- summary: 1-2 sentence description combining visual and audio context, focusing on what a video editor needs to know
+- person: Description of the person on screen (appearance, clothing, facial expressions, gestures, body language)
+- activity: What is happening (actions, movements, interactions with objects or environment)
+- setting: The environment/background (location, lighting, props visible)
+
+Clips to analyze:
+${clipList}
+
+Respond with ONLY valid JSON in this exact format:
+{
+  "descriptions": {
+    "<segmentId>": { "summary": "...", "person": "...", "activity": "...", "setting": "..." }
+  }
+}`;
+
+  const body = {
+    contents: [
+      {
+        parts: [
+          { fileData: { mimeType, fileUri } },
+          { text: prompt },
+        ],
+      },
+    ],
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  };
+
+  const response = await fetch(`${GENERATE_URL}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (response.status === 429) {
+    throw new RateLimitError("Gemini rate limit exceeded");
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini batch generateContent failed (${response.status}): ${errorText}`);
+  }
+
+  const result = (await response.json()) as GeminiGenerateContentResponse;
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) {
+    throw new Error("Gemini returned empty batch response");
+  }
+
+  const parsed = JSON.parse(text) as {
+    descriptions: Record<string, { summary: string; person?: string; activity?: string; setting?: string }>;
+  };
+
+  return parsed.descriptions;
+}
