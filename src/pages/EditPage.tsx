@@ -3,8 +3,7 @@ import { Panel, Group as PanelGroup, Separator } from "react-resizable-panels";
 import { TranscriptPanel } from "../components/edit/TranscriptPanel";
 import { VideoPanel } from "../components/edit/VideoPanel";
 import { ProcessingView } from "../components/edit/ProcessingView";
-import { DebugEditPanel } from "../components/edit/DebugEditPanel";
-import { ConversationInput } from "../components/edit/ConversationInput";
+import { ConversationPanel } from "../components/edit/ConversationPanel";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { runPipeline } from "../api/processingPipeline";
@@ -151,14 +150,8 @@ export function EditPage() {
 
             {/* Video panel (right) */}
             <Panel defaultSize={35} minSize={20}>
-              <div className="h-full overflow-hidden flex flex-col">
-                <div className="flex-1 overflow-hidden">
-                  <VideoPanel />
-                </div>
-                {/* Debug panel for testing agent word operations */}
-                <div className="shrink-0 p-2 border-t border-neutral-800">
-                  <DebugEditPanel />
-                </div>
+              <div className="h-full overflow-hidden">
+                <VideoPanel />
               </div>
             </Panel>
           </PanelGroup>
@@ -166,14 +159,9 @@ export function EditPage() {
 
         <ResizeHandle orientation="vertical" />
 
-        {/* Conversation input (bottom) */}
+        {/* Conversation panel (bottom) */}
         <Panel defaultSize={20} minSize={10}>
-          <ConversationInput
-            onSubmit={(message) => {
-              console.log("User message:", message);
-              // TODO: Handle the message (e.g., send to AI agent)
-            }}
-          />
+          <ConversationPanel />
         </Panel>
       </PanelGroup>
     </main>
