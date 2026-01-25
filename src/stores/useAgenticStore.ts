@@ -14,26 +14,21 @@ export { getWordsWithIds } from "./useProjectStore";
 
 /**
  * Get full agent context - the complete state for the model including
- * source descriptions and timeline state.
+ * timeline state with source description context.
  *
  * Format:
  * ```
- * SOURCES
- * =========================================
- *
- * [src-abc123] interview_clip.mp4
- *     0:00 - 0:30: Host introduces the topic
- *     0:30 - 1:15: Guest discusses their background
- *
  * TIMELINE STATE (X sentences, Y excluded)
  * =========================================
  *
  * [1] sentence-id-123 (ACTIVE)
+ *     Context: Host introduces the topic
  *     "The quick brown fox jumps over..."
  *     Words: [word-1]The [word-2]quick [word-3]~brown [word-4]fox...
  *     (~ prefix = excluded word)
  *
  * [2] sentence-id-456 (EXCLUDED)
+ *     Context: Guest discusses their background
  *     "This sentence was removed..."
  * ```
  */
@@ -47,30 +42,29 @@ export function getAgentContext(): string {
 
   const lines: string[] = [];
 
-  // Source descriptions section
-  if (sources.length > 0) {
-    lines.push("SOURCES");
-    lines.push("=========================================");
-    lines.push("");
+  // Build a map of sentence index by sentenceId for quick lookup
+  const sentenceIndexMap = new Map<string, number>();
+  state.timeline.entries.forEach((entry, index) => {
+    sentenceIndexMap.set(entry.sentenceId, index + 1);
+  });
 
-    sources.forEach((source) => {
-      lines.push(`[${source.id}] ${source.name}`);
-      if (source.descriptions && source.descriptions.length > 0) {
-        source.descriptions.forEach((desc) => {
-          const startMin = Math.floor(desc.start / 60);
-          const startSec = Math.floor(desc.start % 60);
-          const endMin = Math.floor(desc.end / 60);
-          const endSec = Math.floor(desc.end % 60);
-          lines.push(
-            `    ${startMin}:${startSec.toString().padStart(2, "0")} - ${endMin}:${endSec.toString().padStart(2, "0")}: ${desc.description}`
-          );
-        });
-      } else {
-        lines.push("    (no descriptions)");
-      }
-      lines.push("");
-    });
-  }
+  // Build a map from sourceId to its descriptions for quick lookup
+  const sourceDescriptionsMap = new Map(
+    sources.map((source) => [source.id, source.descriptions || []])
+  );
+
+  // Helper to find description context for a sentence
+  const getDescriptionContext = (sentence: typeof state.sentences[0]): string | null => {
+    const descriptions = sourceDescriptionsMap.get(sentence.sourceId);
+    if (!descriptions || descriptions.length === 0) return null;
+
+    // Find description that overlaps with this sentence's time range
+    const matchingDesc = descriptions.find(
+      (desc) => sentence.startTime < desc.end && sentence.endTime > desc.start
+    );
+
+    return matchingDesc?.description || null;
+  };
 
   // Timeline state section
   lines.push(`TIMELINE STATE (${totalSentences} sentences, ${excludedSentences} excluded)`);
@@ -84,9 +78,15 @@ export function getAgentContext(): string {
     const status = entry.excluded ? "EXCLUDED" : "ACTIVE";
     const excludedWordIds = new Set(entry.excludedWordIds);
     const excludedWordCount = excludedWordIds.size;
+    const context = getDescriptionContext(sentence);
 
     // Sentence header
     lines.push(`[${index + 1}] ${entry.sentenceId} (${status})`);
+
+    // Context from source description (if available)
+    if (context) {
+      lines.push(`    Context: ${context}`);
+    }
 
     // Sentence text preview
     const preview = sentence.text.slice(0, 80) + (sentence.text.length > 80 ? "..." : "");
