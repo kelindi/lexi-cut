@@ -43,6 +43,7 @@ export function EditPage() {
   const setOrderedGroupIds = useProjectStore((s) => s.setOrderedGroupIds);
   const setSentences = useProjectStore((s) => s.setSentences);
   const setTranscriptlessSourceIds = useProjectStore((s) => s.setTranscriptlessSourceIds);
+  const setBrollClassifications = useProjectStore((s) => s.setBrollClassifications);
   const initializeTimeline = useProjectStore((s) => s.initializeTimeline);
 
   // Run processing pipeline when sources are available and not already processed
@@ -78,6 +79,7 @@ export function EditPage() {
       setOrderedGroupIds(result.orderedGroupIds);
       setSentences(result.sentences);
       setTranscriptlessSourceIds(result.transcriptlessSourceIds);
+      setBrollClassifications(result.brollClassifications);
       // Initialize the timeline from fresh sentences
       initializeTimeline(result.sentences);
 
@@ -112,6 +114,7 @@ export function EditPage() {
     setOrderedGroupIds,
     setSentences,
     setTranscriptlessSourceIds,
+    setBrollClassifications,
     initializeTimeline,
     updateSourceDescriptions,
   ]);

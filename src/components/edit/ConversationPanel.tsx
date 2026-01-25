@@ -3,28 +3,35 @@
  *
  * Shows messages and tool actions in a single list where:
  * - Latest items appear at the top
- * - Actions can be selectively undone by clicking delete
+ * - Actions are grouped under assistant messages with a dropdown for selective undo
  * - User messages and assistant responses are displayed inline
  * - Assistant text streams in real-time
+ * - "Undo All" button undoes all actions in a batch
  */
 
 import { useState, useCallback, useRef } from "react";
-import { X, ArrowClockwise, ChatCircle, Wrench } from "@phosphor-icons/react";
+import { ArrowClockwise, ChatCircle, Wrench, CaretDown } from "@phosphor-icons/react";
+import { Menu } from "@base-ui/react/menu";
 import { useHistoryStore } from "../../stores/useHistoryStore";
 import { executeAgenticEdit } from "../../api/agenticEdit";
 
-// Item types in the conversation
-type ConversationItemType = "user_message" | "assistant_message" | "action";
-
-interface ConversationItem {
+// Action performed by the assistant
+interface ActionItem {
   id: string;
-  type: ConversationItemType;
+  content: string;
+  commandId: string;
+  timestamp: number;
+}
+
+// Message in the conversation (user or assistant)
+interface ConversationMessage {
+  id: string;
+  type: "user_message" | "assistant_message";
   content: string;
   timestamp: number;
-  // For actions, link to command ID for undo
-  commandId?: string;
-  // For streaming messages
   isStreaming?: boolean;
+  // Actions grouped under this assistant message
+  actions: ActionItem[];
 }
 
 const SUGGESTIONS = [
@@ -34,7 +41,7 @@ const SUGGESTIONS = [
 ];
 
 export function ConversationPanel() {
-  const [items, setItems] = useState<ConversationItem[]>([]);
+  const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -48,25 +55,27 @@ export function ConversationPanel() {
   const handleSubmit = useCallback(async (message: string) => {
     if (!message.trim() || isProcessing) return;
 
-    const userItem: ConversationItem = {
+    const userMessage: ConversationMessage = {
       id: crypto.randomUUID(),
       type: "user_message",
       content: message,
       timestamp: Date.now(),
+      actions: [],
     };
 
     // Create a streaming assistant message placeholder
     const streamingId = crypto.randomUUID();
     streamingMessageIdRef.current = streamingId;
-    const streamingItem: ConversationItem = {
+    const streamingMessage: ConversationMessage = {
       id: streamingId,
       type: "assistant_message",
       content: "",
       timestamp: Date.now(),
       isStreaming: true,
+      actions: [],
     };
 
-    setItems((prev) => [streamingItem, userItem, ...prev]);
+    setMessages((prev) => [streamingMessage, userMessage, ...prev]);
     setInputValue("");
     setIsProcessing(true);
 
@@ -74,44 +83,43 @@ export function ConversationPanel() {
       await executeAgenticEdit(message, {
         // Stream text deltas into the assistant message
         onTextDelta: (text) => {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === streamingId
-                ? { ...item, content: item.content + text }
-                : item
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === streamingId
+                ? { ...msg, content: msg.content + text }
+                : msg
             )
           );
         },
 
-        // When a tool completes, add an action item
+        // When a tool completes, add action to the assistant message's actions array
         onToolComplete: (toolName, result, commandId) => {
           if (commandId) {
             const command = useHistoryStore.getState().commands.find((c) => c.id === commandId);
-            const actionItem: ConversationItem = {
+            const actionItem: ActionItem = {
               id: crypto.randomUUID(),
-              type: "action",
               content: command?.label || `${toolName}: ${result}`,
-              timestamp: Date.now(),
               commandId,
+              timestamp: Date.now(),
             };
-            // Insert action after the streaming message
-            setItems((prev) => {
-              const streamingIndex = prev.findIndex((i) => i.id === streamingId);
-              if (streamingIndex === -1) return [actionItem, ...prev];
-              const newItems = [...prev];
-              newItems.splice(streamingIndex + 1, 0, actionItem);
-              return newItems;
-            });
+            // Add action to the streaming message's actions array
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === streamingId
+                  ? { ...msg, actions: [...msg.actions, actionItem] }
+                  : msg
+              )
+            );
           }
         },
 
         // When complete, finalize the streaming message
         onComplete: (finalMessage) => {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === streamingId
-                ? { ...item, content: finalMessage || item.content, isStreaming: false }
-                : item
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === streamingId
+                ? { ...msg, content: finalMessage || msg.content, isStreaming: false }
+                : msg
             )
           );
           streamingMessageIdRef.current = null;
@@ -119,11 +127,11 @@ export function ConversationPanel() {
 
         // On error, update the streaming message with error
         onError: (error) => {
-          setItems((prev) =>
-            prev.map((item) =>
-              item.id === streamingId
-                ? { ...item, content: `Error: ${error.message}`, isStreaming: false }
-                : item
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === streamingId
+                ? { ...msg, content: `Error: ${error.message}`, isStreaming: false }
+                : msg
             )
           );
           streamingMessageIdRef.current = null;
@@ -132,11 +140,11 @@ export function ConversationPanel() {
     } catch (err) {
       // Error already handled by onError callback, but just in case
       const errorMsg = err instanceof Error ? err.message : String(err);
-      setItems((prev) =>
-        prev.map((item) =>
-          item.id === streamingId
-            ? { ...item, content: `Error: ${errorMsg}`, isStreaming: false }
-            : item
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === streamingId
+            ? { ...msg, content: `Error: ${errorMsg}`, isStreaming: false }
+            : msg
         )
       );
     } finally {
@@ -144,29 +152,47 @@ export function ConversationPanel() {
     }
   }, [isProcessing]);
 
-  // Handle undoing an action
-  const handleUndoAction = useCallback((item: ConversationItem) => {
-    if (item.commandId) {
-      undoCommand(item.commandId);
-      // Remove the item from the list
-      setItems((prev) => prev.filter((i) => i.id !== item.id));
-    }
+  // Handle undoing a single action within a message
+  const handleUndoSingleAction = useCallback((messageId: string, actionId: string, commandId: string) => {
+    undoCommand(commandId);
+    // Remove the action from the message
+    setMessages((prev) =>
+      prev.map((msg) =>
+        msg.id === messageId
+          ? { ...msg, actions: msg.actions.filter((a) => a.id !== actionId) }
+          : msg
+      )
+    );
   }, [undoCommand]);
 
-  // Handle removing a message (non-action items just get removed from view)
-  const handleRemoveItem = useCallback((item: ConversationItem) => {
-    if (item.type === "action" && item.commandId) {
-      handleUndoAction(item);
-    } else {
-      setItems((prev) => prev.filter((i) => i.id !== item.id));
+  // Handle undoing all actions in a message and removing the message
+  const handleUndoAllActions = useCallback((message: ConversationMessage) => {
+    // Undo all actions in the message
+    for (const action of message.actions) {
+      undoCommand(action.commandId);
     }
-  }, [handleUndoAction]);
+    // Remove the message from the list
+    setMessages((prev) => prev.filter((m) => m.id !== message.id));
+  }, [undoCommand]);
+
+  // Handle removing a message (undoes all actions if it's an assistant message with actions)
+  const handleRemoveMessage = useCallback((message: ConversationMessage) => {
+    if (message.type === "assistant_message" && message.actions.length > 0) {
+      handleUndoAllActions(message);
+    } else {
+      setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    }
+  }, [handleUndoAllActions]);
 
   // Check if an action's command still exists (hasn't been undone elsewhere)
-  const isCommandActive = useCallback((commandId?: string) => {
-    if (!commandId) return false;
+  const isCommandActive = useCallback((commandId: string) => {
     return commands.some((c) => c.id === commandId);
   }, [commands]);
+
+  // Get active actions for a message (filter out undone ones)
+  const getActiveActions = useCallback((actions: ActionItem[]) => {
+    return actions.filter((a) => isCommandActive(a.commandId));
+  }, [isCommandActive]);
 
   return (
     <div className="h-full flex flex-col bg-neutral-900">
@@ -214,18 +240,22 @@ export function ConversationPanel() {
 
       {/* Conversation/action list */}
       <div className="flex-1 overflow-y-auto">
-        {items.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="p-4 text-center text-neutral-500 text-sm">
             Your edits will appear here
           </div>
         ) : (
           <div className="divide-y divide-neutral-800">
-            {items.map((item) => (
-              <ConversationItemRow
-                key={item.id}
-                item={item}
-                isActive={item.type !== "action" || isCommandActive(item.commandId)}
-                onRemove={() => handleRemoveItem(item)}
+            {messages.map((message) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                activeActions={getActiveActions(message.actions)}
+                onRemove={() => handleRemoveMessage(message)}
+                onUndoAction={(actionId, commandId) =>
+                  handleUndoSingleAction(message.id, actionId, commandId)
+                }
+                onUndoAll={() => handleUndoAllActions(message)}
               />
             ))}
           </div>
@@ -235,65 +265,90 @@ export function ConversationPanel() {
   );
 }
 
-interface ConversationItemRowProps {
-  item: ConversationItem;
-  isActive: boolean;
+interface MessageRowProps {
+  message: ConversationMessage;
+  activeActions: ActionItem[];
   onRemove: () => void;
+  onUndoAction: (actionId: string, commandId: string) => void;
+  onUndoAll: () => void;
 }
 
-function ConversationItemRow({ item, isActive, onRemove }: ConversationItemRowProps) {
-  const getIcon = () => {
-    switch (item.type) {
-      case "user_message":
-        return <ChatCircle size={14} className="text-blue-400" />;
-      case "assistant_message":
-        return <ChatCircle size={14} className="text-green-400" />;
-      case "action":
-        return <Wrench size={14} className="text-amber-400" />;
-    }
-  };
-
-  const getLabel = () => {
-    switch (item.type) {
-      case "user_message":
-        return "You";
-      case "assistant_message":
-        return "Assistant";
-      case "action":
-        return "Action";
-    }
-  };
+function MessageRow({ message, activeActions, onRemove, onUndoAction, onUndoAll }: MessageRowProps) {
+  const isUser = message.type === "user_message";
+  const hasActions = activeActions.length > 0;
 
   return (
-    <div
-      className={`group flex items-start gap-2 px-3 py-2 hover:bg-neutral-800/50 ${
-        !isActive ? "opacity-50" : ""
-      }`}
-    >
-      <div className="shrink-0 mt-0.5">{getIcon()}</div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-neutral-400">{getLabel()}</span>
-          {item.type === "action" && isActive && (
-            <span className="text-xs text-neutral-500">(click x to undo)</span>
-          )}
-          {item.isStreaming && (
-            <span className="text-xs text-green-400 animate-pulse">thinking...</span>
-          )}
+    <div className="group px-3 py-2 hover:bg-neutral-800/50">
+      {/* Message header and content */}
+      <div className="flex items-start gap-2">
+        <div className="shrink-0 mt-0.5">
+          <ChatCircle size={14} className={isUser ? "text-blue-400" : "text-green-400"} />
         </div>
-        <p className="text-sm text-neutral-200 break-words whitespace-pre-wrap">
-          {item.content || (item.isStreaming ? "..." : "")}
-        </p>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-neutral-400">
+              {isUser ? "You" : "Assistant"}
+            </span>
+            {message.isStreaming && (
+              <span className="text-xs text-green-400 animate-pulse">thinking...</span>
+            )}
+          </div>
+          <p className="text-sm text-neutral-200 break-words whitespace-pre-wrap">
+            {message.content || (message.isStreaming ? "..." : "")}
+          </p>
+        </div>
+
+        {/* Actions section for assistant messages */}
+        {!message.isStreaming && !isUser && hasActions && (
+          <div className="shrink-0 flex items-center gap-1">
+            {/* Actions dropdown */}
+            <Menu.Root>
+              <Menu.Trigger className="flex items-center gap-1 px-2 py-1 text-xs text-neutral-400 bg-neutral-800 hover:bg-neutral-700 hover:text-neutral-200 rounded transition-colors">
+                <Wrench size={12} />
+                <span>{activeActions.length} action{activeActions.length !== 1 ? 's' : ''}</span>
+                <CaretDown size={10} />
+              </Menu.Trigger>
+              <Menu.Portal>
+                <Menu.Positioner className="z-50">
+                  <Menu.Popup className="bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl py-1 min-w-[200px] max-w-[300px]">
+                    <div className="px-2 py-1.5 text-xs text-neutral-500 border-b border-neutral-700">
+                      Click to undo individually
+                    </div>
+                    {activeActions.map((action) => (
+                      <Menu.Item
+                        key={action.id}
+                        onClick={() => onUndoAction(action.id, action.commandId)}
+                        className="px-3 py-2 text-sm text-neutral-200 hover:bg-neutral-700 cursor-pointer flex items-start gap-2"
+                      >
+                        <Wrench size={12} className="text-amber-400 mt-0.5 shrink-0" />
+                        <span className="break-words">{action.content}</span>
+                      </Menu.Item>
+                    ))}
+                  </Menu.Popup>
+                </Menu.Positioner>
+              </Menu.Portal>
+            </Menu.Root>
+
+            {/* Undo All button */}
+            <button
+              onClick={onUndoAll}
+              className="px-2 py-1 text-xs text-neutral-400 bg-neutral-800 hover:bg-red-900/50 hover:text-red-400 rounded transition-colors"
+            >
+              Undo All
+            </button>
+          </div>
+        )}
+
+        {/* Remove button for user messages or assistant messages without actions */}
+        {!message.isStreaming && (isUser || !hasActions) && (
+          <button
+            onClick={onRemove}
+            className="shrink-0 px-2 py-1 text-xs text-neutral-500 hover:text-neutral-300 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            Remove
+          </button>
+        )}
       </div>
-      {!item.isStreaming && (
-        <button
-          onClick={onRemove}
-          className="shrink-0 p-1 text-neutral-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-          title={item.type === "action" ? "Undo this action" : "Remove"}
-        >
-          <X size={14} />
-        </button>
-      )}
     </div>
   );
 }

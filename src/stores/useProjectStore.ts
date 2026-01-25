@@ -7,6 +7,7 @@ import type {
   ProcessingPhase,
   ProcessingProgress,
   Source,
+  BrollClassification,
 } from "../types";
 import { saveProjectData, loadProjectData, createTimelineFromSentences, type ProjectData } from "../api/projects";
 import { useSourcesStore } from "./useSourcesStore";
@@ -30,6 +31,9 @@ interface ProjectState {
 
   // Sources without transcripts (silent/no audio)
   transcriptlessSourceIds: string[];
+
+  // B-roll classifications
+  brollClassifications: Map<string, BrollClassification>;
 
   // Legacy group ordering (kept for backward compatibility during transition)
   orderedGroupIds: string[];
@@ -70,6 +74,10 @@ interface ProjectState {
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
 
+  // B-roll classification actions
+  setBrollClassifications: (classifications: BrollClassification[]) => void;
+  clearBrollClassifications: () => void;
+
   // Legacy group actions (kept for backward compatibility)
   setOrderedGroupIds: (ids: string[]) => void;
   excludeGroup: (id: string) => void;
@@ -97,6 +105,7 @@ const initialState = {
   sentences: [],
   timeline: emptyTimeline,
   transcriptlessSourceIds: [] as string[],
+  brollClassifications: new Map<string, BrollClassification>(),
   orderedGroupIds: [],
   excludedGroupIds: [],
   phase: "idle" as ProcessingPhase,
@@ -119,6 +128,12 @@ export const useProjectStore = create<ProjectState>((set) => ({
     try {
       const data = await loadProjectData(id);
       if (data) {
+        // Convert brollClassifications array to Map
+        const brollMap = new Map<string, BrollClassification>();
+        for (const c of data.brollClassifications ?? []) {
+          brollMap.set(c.sentenceId, c);
+        }
+
         // Restore project store state with all data at once
         set({
           ...initialState,
@@ -129,6 +144,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
           segmentGroups: data.segmentGroups,
           timeline: data.timeline ?? emptyTimeline,
           transcriptlessSourceIds: data.transcriptlessSourceIds,
+          brollClassifications: brollMap,
           orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
           excludedGroupIds: [],
           isDirty: false,
@@ -181,6 +197,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       segmentGroups: state.segmentGroups,
       timeline: state.timeline,
       transcriptlessSourceIds: state.transcriptlessSourceIds,
+      brollClassifications: Array.from(state.brollClassifications.values()),
       savedAt: Date.now(),
     };
 
@@ -191,6 +208,12 @@ export const useProjectStore = create<ProjectState>((set) => ({
   loadProject: async (projectId: string) => {
     const data = await loadProjectData(projectId);
     if (data) {
+      // Convert brollClassifications array to Map
+      const brollMap = new Map<string, BrollClassification>();
+      for (const c of data.brollClassifications ?? []) {
+        brollMap.set(c.sentenceId, c);
+      }
+
       set({
         projectId: data.id,
         projectName: data.name,
@@ -199,6 +222,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         segmentGroups: data.segmentGroups,
         timeline: data.timeline ?? emptyTimeline,
         transcriptlessSourceIds: data.transcriptlessSourceIds,
+        brollClassifications: brollMap,
         orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
         excludedGroupIds: [],
         isDirty: false,
@@ -376,6 +400,18 @@ export const useProjectStore = create<ProjectState>((set) => ({
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds, isDirty: true }),
 
+  // B-roll classification actions
+  setBrollClassifications: (classifications) =>
+    set((state) => {
+      const newMap = new Map(state.brollClassifications);
+      for (const c of classifications) {
+        newMap.set(c.sentenceId, c);
+      }
+      return { brollClassifications: newMap, isDirty: true };
+    }),
+
+  clearBrollClassifications: () => set({ brollClassifications: new Map(), isDirty: true }),
+
   // Legacy group actions
   setOrderedGroupIds: (ids) => set({ orderedGroupIds: ids, isDirty: true }),
 
@@ -452,6 +488,12 @@ export const useTimelineEntry = (sentenceId: string) =>
  */
 export const useSentenceById = (id: string) =>
   useProjectStore((state) => state.sentences.find((s) => s.sentenceId === id));
+
+/**
+ * Returns the B-roll classification for a sentence, or undefined if not classified.
+ */
+export const useBrollClassification = (sentenceId: string) =>
+  useProjectStore((state) => state.brollClassifications.get(sentenceId));
 
 /**
  * Returns sentences ordered by timeline, including their exclusion state.

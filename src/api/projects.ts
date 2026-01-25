@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectMeta, Source, Word, Sentence, SegmentGroup, Timeline, TimelineEntry } from "../types";
+import type { ProjectMeta, Source, Word, Sentence, SegmentGroup, Timeline, TimelineEntry, BrollClassification } from "../types";
 
 export async function loadProjects(): Promise<ProjectMeta[]> {
   return invoke<ProjectMeta[]>("load_projects");
@@ -25,6 +25,8 @@ export interface ProjectData {
   excludedSentenceIds?: string[];
   excludedWordIds?: string[];
   transcriptlessSourceIds: string[];
+  // B-roll classifications (stored as array, converted to Map in store)
+  brollClassifications?: BrollClassification[];
   savedAt: number;
 }
 
