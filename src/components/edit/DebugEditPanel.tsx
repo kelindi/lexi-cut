@@ -16,15 +16,14 @@ export function DebugEditPanel() {
   const [wordIdsInput, setWordIdsInput] = useState<string>("");
   const [lastResult, setLastResult] = useState<string>("");
   const [showAllWords, setShowAllWords] = useState(false);
-  const [swapSentenceA, setSwapSentenceA] = useState<string>("");
-  const [swapSentenceB, setSwapSentenceB] = useState<string>("");
+  const [reorderSequence, setReorderSequence] = useState<string[]>([]);
 
   const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
   const words = useProjectStore((s) => s.words);
   const deleteWordsByIds = useProjectStore((s) => s.deleteWordsByIds);
   const restoreWordsByIds = useProjectStore((s) => s.restoreWordsByIds);
-  const swapSentences = useProjectStore((s) => s.swapSentences);
+  const reorderSentencesById = useProjectStore((s) => s.reorderSentencesById);
 
   // Get the selected sentence and its words
   const selectedSentence = sentences.find((s) => s.sentenceId === selectedSentenceId);
@@ -165,18 +164,15 @@ export function DebugEditPanel() {
         </button>
       </div>
 
-      {/* Swap Sentences Section */}
+      {/* Bulk Reorder Section */}
       <div className="border-t border-neutral-700 pt-4 space-y-2">
         <div className="flex items-center justify-between">
           <label className="text-xs text-neutral-400 font-medium">
-            Swap Sentences (click to select A, then B)
+            Sequence Reorder (click sentences in desired order)
           </label>
-          {(swapSentenceA || swapSentenceB) && (
+          {reorderSequence.length > 0 && (
             <button
-              onClick={() => {
-                setSwapSentenceA("");
-                setSwapSentenceB("");
-              }}
+              onClick={() => setReorderSequence([])}
               className="px-2 py-0.5 text-xs bg-neutral-700 hover:bg-neutral-600 text-neutral-300 rounded"
             >
               Clear
@@ -184,76 +180,78 @@ export function DebugEditPanel() {
           )}
         </div>
 
-        {/* Clickable sentence list */}
+        {/* Clickable sentence list for sequencing */}
         <div className="space-y-1 max-h-48 overflow-y-auto bg-neutral-800 rounded p-2">
-          {timeline.entries.map((entry, idx) => {
+          {timeline.entries.map((entry) => {
             const sentence = sentences.find((s) => s.sentenceId === entry.sentenceId);
-            const preview = sentence?.text.slice(0, 50) ?? "";
-            const isA = swapSentenceA === entry.sentenceId;
-            const isB = swapSentenceB === entry.sentenceId;
+            const preview = sentence?.text.slice(0, 40) ?? "";
+            const seqIndex = reorderSequence.indexOf(entry.sentenceId);
+            const isSelected = seqIndex !== -1;
 
             return (
               <button
                 key={entry.sentenceId}
                 onClick={() => {
-                  if (isA) {
-                    setSwapSentenceA("");
-                  } else if (isB) {
-                    setSwapSentenceB("");
-                  } else if (!swapSentenceA) {
-                    setSwapSentenceA(entry.sentenceId);
-                  } else if (!swapSentenceB) {
-                    setSwapSentenceB(entry.sentenceId);
+                  if (isSelected) {
+                    // Remove from sequence
+                    setReorderSequence(reorderSequence.filter((id) => id !== entry.sentenceId));
+                  } else {
+                    // Add to sequence
+                    setReorderSequence([...reorderSequence, entry.sentenceId]);
                   }
                 }}
                 className={`w-full text-left px-2 py-1.5 rounded text-xs font-mono transition-colors flex items-center gap-2 ${
-                  isA
-                    ? "bg-purple-600/30 text-purple-200 ring-1 ring-purple-500"
-                    : isB
-                      ? "bg-blue-600/30 text-blue-200 ring-1 ring-blue-500"
-                      : entry.excluded
-                        ? "bg-neutral-700/50 text-neutral-500 line-through"
-                        : "bg-neutral-700 text-neutral-200 hover:bg-neutral-600"
+                  isSelected
+                    ? "bg-cyan-600/30 text-cyan-200 ring-1 ring-cyan-500"
+                    : entry.excluded
+                      ? "bg-neutral-700/50 text-neutral-500 line-through"
+                      : "bg-neutral-700 text-neutral-200 hover:bg-neutral-600"
                 }`}
               >
-                <span className="text-neutral-500 w-6">{idx + 1}.</span>
-                {isA && <span className="text-purple-400 font-bold">A</span>}
-                {isB && <span className="text-blue-400 font-bold">B</span>}
+                {isSelected && (
+                  <span className="text-cyan-400 font-bold w-6">{seqIndex + 1}.</span>
+                )}
+                {!isSelected && <span className="w-6" />}
                 <span className="truncate flex-1">{preview}...</span>
+                <span className="text-neutral-500 text-[10px]">{entry.sentenceId}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Selection indicator */}
-        <div className="flex gap-2 text-xs">
-          <div className={`flex-1 px-2 py-1 rounded ${swapSentenceA ? "bg-purple-600/20 text-purple-300" : "bg-neutral-800 text-neutral-500"}`}>
-            A: {swapSentenceA || "(click to select)"}
+        {/* Sequence preview */}
+        {reorderSequence.length > 0 && (
+          <div className="text-xs bg-neutral-800 rounded p-2">
+            <span className="text-neutral-400">New order: </span>
+            <span className="text-cyan-300 font-mono">
+              {reorderSequence.map((id, i) => (
+                <span key={id}>
+                  {i > 0 && " → "}
+                  {id}
+                </span>
+              ))}
+            </span>
           </div>
-          <div className={`flex-1 px-2 py-1 rounded ${swapSentenceB ? "bg-blue-600/20 text-blue-300" : "bg-neutral-800 text-neutral-500"}`}>
-            B: {swapSentenceB || "(click to select)"}
-          </div>
-        </div>
+        )}
 
         <button
           onClick={() => {
-            if (!swapSentenceA || !swapSentenceB) {
-              setLastResult("Error: Select both sentences to swap");
+            if (reorderSequence.length < 2) {
+              setLastResult("Error: Select at least 2 sentences to reorder");
               return;
             }
-            swapSentences(swapSentenceA, swapSentenceB);
-            setLastResult(`Swapped: ${swapSentenceA} ↔ ${swapSentenceB}`);
-            setSwapSentenceA("");
-            setSwapSentenceB("");
+            reorderSentencesById(reorderSequence);
+            setLastResult(`Reordered ${reorderSequence.length} sentences`);
+            setReorderSequence([]);
           }}
-          disabled={!swapSentenceA || !swapSentenceB}
+          disabled={reorderSequence.length < 2}
           className={`w-full px-3 py-1.5 text-white text-sm font-medium rounded transition-colors ${
-            swapSentenceA && swapSentenceB
-              ? "bg-purple-600 hover:bg-purple-500"
+            reorderSequence.length >= 2
+              ? "bg-cyan-600 hover:bg-cyan-500"
               : "bg-neutral-700 text-neutral-500 cursor-not-allowed"
           }`}
         >
-          Swap A ↔ B
+          Apply Sequence ({reorderSequence.length} selected)
         </button>
       </div>
 

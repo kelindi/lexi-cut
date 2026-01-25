@@ -65,7 +65,7 @@ interface ProjectState {
   restoreWordsByIds: (sentenceId: string, wordIds: string[]) => void;
   deleteSentencesByIds: (sentenceIds: string[]) => void;
   restoreSentencesByIds: (sentenceIds: string[]) => void;
-  swapSentences: (sentenceIdA: string, sentenceIdB: string) => void;
+  reorderSentencesById: (sentenceIds: string[]) => void;
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
@@ -342,19 +342,27 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
-  // Agent-only: swap two sentences by ID
-  swapSentences: (sentenceIdA: string, sentenceIdB: string) =>
+  // Agent-only: reorder all sentences by ID array (bulk reorder)
+  reorderSentencesById: (sentenceIds: string[]) =>
     set((state) => {
-      const indexA = state.timeline.entries.findIndex((e) => e.sentenceId === sentenceIdA);
-      const indexB = state.timeline.entries.findIndex((e) => e.sentenceId === sentenceIdB);
+      const entryMap = new Map(state.timeline.entries.map((e) => [e.sentenceId, e]));
 
-      if (indexA === -1 || indexB === -1) return state;
+      // Build new entries array in the specified order
+      const reorderedEntries = sentenceIds
+        .map((id) => entryMap.get(id))
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
 
-      const newEntries = [...state.timeline.entries];
-      [newEntries[indexA], newEntries[indexB]] = [newEntries[indexB], newEntries[indexA]];
+      // Append any entries not in sentenceIds (preserves entries the agent didn't mention)
+      const specifiedIds = new Set(sentenceIds);
+      const remainingEntries = state.timeline.entries.filter(
+        (e) => !specifiedIds.has(e.sentenceId)
+      );
 
       return {
-        timeline: { ...state.timeline, entries: newEntries },
+        timeline: {
+          ...state.timeline,
+          entries: [...reorderedEntries, ...remainingEntries],
+        },
         isDirty: true,
       };
     }),
