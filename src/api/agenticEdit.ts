@@ -1,11 +1,11 @@
 /**
- * Agentic Edit API - Claude tool-use integration for video editing
+ * Agentic Edit API - Claude tool-use integration for video editing with streaming
  *
  * This module sends the timeline context to Claude with tool definitions,
  * then executes tool calls in a loop until Claude responds with text.
+ * Supports streaming for real-time text updates.
  */
 
-import { fetch } from "@tauri-apps/plugin-http";
 import {
   getAgentContext,
   deleteWords,
@@ -161,7 +161,15 @@ interface ToolResult {
   content: string;
 }
 
-interface AgenticEditResult {
+export interface AgenticEditCallbacks {
+  onTextDelta?: (text: string) => void;
+  onToolStart?: (toolName: string, input: Record<string, unknown>) => void;
+  onToolComplete?: (toolName: string, result: string, commandId?: string) => void;
+  onComplete?: (message: string, commandIds: string[]) => void;
+  onError?: (error: Error) => void;
+}
+
+export interface AgenticEditResult {
   success: boolean;
   message: string;
   toolCallCount: number;
@@ -234,19 +242,160 @@ function executeTool(
 }
 
 /**
- * Execute an agentic editing request
+ * Parse SSE stream and extract events
+ */
+async function* parseSSEStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>
+): AsyncGenerator<{ event: string; data: string }> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+
+    let currentEvent = "";
+    let currentData = "";
+
+    for (const line of lines) {
+      if (line.startsWith("event: ")) {
+        currentEvent = line.slice(7);
+      } else if (line.startsWith("data: ")) {
+        currentData = line.slice(6);
+        if (currentEvent && currentData) {
+          yield { event: currentEvent, data: currentData };
+          currentEvent = "";
+          currentData = "";
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Make a streaming API call and collect the response
+ */
+async function streamingApiCall(
+  apiKey: string,
+  messages: Message[],
+  callbacks: AgenticEditCallbacks
+): Promise<{ content: ContentBlock[]; stopReason: string }> {
+  const response = await fetch(API_URL, {
+    method: "POST",
+    headers: {
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      system: SYSTEM_PROMPT,
+      tools: TOOLS,
+      messages,
+      stream: true,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`API error (${response.status}): ${errorText}`);
+  }
+
+  if (!response.body) {
+    throw new Error("No response body");
+  }
+
+  const reader = response.body.getReader();
+  const contentBlocks: ContentBlock[] = [];
+  let currentTextBlock: TextBlock | null = null;
+  let currentToolBlock: ToolUseBlock | null = null;
+  let currentToolInput = "";
+  let stopReason = "";
+
+  for await (const { event, data } of parseSSEStream(reader)) {
+    if (data === "[DONE]") break;
+
+    try {
+      const parsed = JSON.parse(data);
+
+      switch (event) {
+        case "content_block_start":
+          if (parsed.content_block?.type === "text") {
+            currentTextBlock = { type: "text", text: "" };
+          } else if (parsed.content_block?.type === "tool_use") {
+            currentToolBlock = {
+              type: "tool_use",
+              id: parsed.content_block.id,
+              name: parsed.content_block.name,
+              input: {},
+            };
+            currentToolInput = "";
+            callbacks.onToolStart?.(parsed.content_block.name, {});
+          }
+          break;
+
+        case "content_block_delta":
+          if (parsed.delta?.type === "text_delta" && currentTextBlock) {
+            currentTextBlock.text += parsed.delta.text;
+            callbacks.onTextDelta?.(parsed.delta.text);
+          } else if (parsed.delta?.type === "input_json_delta" && currentToolBlock) {
+            currentToolInput += parsed.delta.partial_json;
+          }
+          break;
+
+        case "content_block_stop":
+          if (currentTextBlock) {
+            contentBlocks.push(currentTextBlock);
+            currentTextBlock = null;
+          } else if (currentToolBlock) {
+            try {
+              currentToolBlock.input = currentToolInput ? JSON.parse(currentToolInput) : {};
+            } catch {
+              currentToolBlock.input = {};
+            }
+            contentBlocks.push(currentToolBlock);
+            currentToolBlock = null;
+            currentToolInput = "";
+          }
+          break;
+
+        case "message_delta":
+          if (parsed.delta?.stop_reason) {
+            stopReason = parsed.delta.stop_reason;
+          }
+          break;
+      }
+    } catch (e) {
+      console.warn("[agenticEdit] Failed to parse SSE data:", data, e);
+    }
+  }
+
+  return { content: contentBlocks, stopReason };
+}
+
+/**
+ * Execute an agentic editing request with streaming
  *
  * Sends the user's instruction along with the current timeline context to Claude,
  * then executes any tool calls in a loop until Claude responds with a final message.
  */
 export async function executeAgenticEdit(
-  userInstruction: string
+  userInstruction: string,
+  callbacks: AgenticEditCallbacks = {}
 ): Promise<AgenticEditResult> {
   console.log(`[agenticEdit] Starting with instruction: "${userInstruction}"`);
 
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
   if (!apiKey) {
-    throw new Error("Missing VITE_ANTHROPIC_API_KEY in environment variables");
+    const error = new Error("Missing VITE_ANTHROPIC_API_KEY in environment variables");
+    callbacks.onError?.(error);
+    throw error;
   }
 
   // Build the initial user message with context
@@ -262,112 +411,97 @@ User request: ${userInstruction}`;
   const messages: Message[] = [{ role: "user", content: userMessage }];
   const commandIds: string[] = [];
   let toolCallCount = 0;
+  let finalMessage = "";
 
-  // Agentic loop
-  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    console.log(`[agenticEdit] Iteration ${iteration + 1}, calling Claude...`);
+  try {
+    // Agentic loop
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      console.log(`[agenticEdit] Iteration ${iteration + 1}, calling Claude...`);
 
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        system: SYSTEM_PROMPT,
-        tools: TOOLS,
-        messages,
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(
-        `[agenticEdit] Claude API FAILED (${response.status}): ${errorText}`
-      );
-      throw new Error(`Agentic edit failed (${response.status}): ${errorText}`);
-    }
-
-    const data = (await response.json()) as {
-      content: ContentBlock[];
-      stop_reason: string;
-    };
-
-    console.log(
-      `[agenticEdit] Response stop_reason: ${data.stop_reason}, content blocks: ${data.content.length}`
-    );
-
-    // Check if Claude wants to use tools
-    const toolUseBlocks = data.content.filter(
-      (block): block is ToolUseBlock => block.type === "tool_use"
-    );
-
-    if (toolUseBlocks.length === 0) {
-      // No tool calls - Claude is done, extract final message
-      const textBlock = data.content.find(
-        (block): block is TextBlock => block.type === "text"
-      );
-      const finalMessage = textBlock?.text || "Edit completed.";
+      const { content, stopReason } = await streamingApiCall(apiKey, messages, callbacks);
 
       console.log(
-        `[agenticEdit] Completed with ${toolCallCount} tool calls. Message: ${finalMessage.slice(0, 100)}...`
+        `[agenticEdit] Response stop_reason: ${stopReason}, content blocks: ${content.length}`
       );
 
-      return {
-        success: true,
-        message: finalMessage,
-        toolCallCount,
-        commandIds,
-      };
-    }
-
-    // Execute tool calls and build results
-    const toolResults: ToolResult[] = [];
-
-    for (const toolUse of toolUseBlocks) {
-      console.log(
-        `[agenticEdit] Executing tool: ${toolUse.name}`,
-        toolUse.input
+      // Check if Claude wants to use tools
+      const toolUseBlocks = content.filter(
+        (block): block is ToolUseBlock => block.type === "tool_use"
       );
 
-      const { success, result, commandId } = executeTool(
-        toolUse.name,
-        toolUse.input
-      );
+      if (toolUseBlocks.length === 0) {
+        // No tool calls - Claude is done, extract final message
+        const textBlock = content.find(
+          (block): block is TextBlock => block.type === "text"
+        );
+        finalMessage = textBlock?.text || "Edit completed.";
 
-      if (commandId) {
-        commandIds.push(commandId);
+        console.log(
+          `[agenticEdit] Completed with ${toolCallCount} tool calls. Message: ${finalMessage.slice(0, 100)}...`
+        );
+
+        callbacks.onComplete?.(finalMessage, commandIds);
+
+        return {
+          success: true,
+          message: finalMessage,
+          toolCallCount,
+          commandIds,
+        };
       }
 
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: toolUse.id,
-        content: result,
-      });
+      // Execute tool calls and build results
+      const toolResults: ToolResult[] = [];
 
-      toolCallCount++;
-      console.log(
-        `[agenticEdit] Tool ${toolUse.name}: ${success ? "success" : "failed"} - ${result}`
-      );
+      for (const toolUse of toolUseBlocks) {
+        console.log(
+          `[agenticEdit] Executing tool: ${toolUse.name}`,
+          toolUse.input
+        );
+
+        const { success, result, commandId } = executeTool(
+          toolUse.name,
+          toolUse.input
+        );
+
+        if (commandId) {
+          commandIds.push(commandId);
+        }
+
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result,
+        });
+
+        toolCallCount++;
+        callbacks.onToolComplete?.(toolUse.name, result, commandId);
+        console.log(
+          `[agenticEdit] Tool ${toolUse.name}: ${success ? "success" : "failed"} - ${result}`
+        );
+      }
+
+      // Add assistant response and tool results to messages
+      messages.push({ role: "assistant", content });
+      messages.push({ role: "user", content: toolResults as unknown as string });
     }
 
-    // Add assistant response and tool results to messages
-    messages.push({ role: "assistant", content: data.content });
-    messages.push({ role: "user", content: toolResults as unknown as string });
-  }
+    // Hit max iterations
+    console.warn(
+      `[agenticEdit] Hit max iterations (${MAX_TOOL_ITERATIONS}), stopping`
+    );
+    finalMessage = `Completed ${toolCallCount} edits (reached iteration limit)`;
+    callbacks.onComplete?.(finalMessage, commandIds);
 
-  // Hit max iterations
-  console.warn(
-    `[agenticEdit] Hit max iterations (${MAX_TOOL_ITERATIONS}), stopping`
-  );
-  return {
-    success: true,
-    message: `Completed ${toolCallCount} edits (reached iteration limit)`,
-    toolCallCount,
-    commandIds,
-  };
+    return {
+      success: true,
+      message: finalMessage,
+      toolCallCount,
+      commandIds,
+    };
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    callbacks.onError?.(err);
+    throw err;
+  }
 }

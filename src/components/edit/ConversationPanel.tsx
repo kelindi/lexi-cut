@@ -1,13 +1,14 @@
 /**
- * ConversationPanel - Unified conversation and action history
+ * ConversationPanel - Unified conversation and action history with streaming
  *
  * Shows messages and tool actions in a single list where:
  * - Latest items appear at the top
  * - Actions can be selectively undone by clicking delete
  * - User messages and assistant responses are displayed inline
+ * - Assistant text streams in real-time
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { X, ArrowClockwise, ChatCircle, Wrench } from "@phosphor-icons/react";
 import { useHistoryStore } from "../../stores/useHistoryStore";
 import { executeAgenticEdit } from "../../api/agenticEdit";
@@ -22,6 +23,8 @@ interface ConversationItem {
   timestamp: number;
   // For actions, link to command ID for undo
   commandId?: string;
+  // For streaming messages
+  isStreaming?: boolean;
 }
 
 const SUGGESTIONS = [
@@ -34,6 +37,9 @@ export function ConversationPanel() {
   const [items, setItems] = useState<ConversationItem[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
+
+  // Ref to track the current streaming message ID
+  const streamingMessageIdRef = useRef<string | null>(null);
 
   const commands = useHistoryStore((s) => s.commands);
   const undoCommand = useHistoryStore((s) => s.undoCommand);
@@ -49,44 +55,90 @@ export function ConversationPanel() {
       timestamp: Date.now(),
     };
 
-    setItems((prev) => [userItem, ...prev]);
+    // Create a streaming assistant message placeholder
+    const streamingId = crypto.randomUUID();
+    streamingMessageIdRef.current = streamingId;
+    const streamingItem: ConversationItem = {
+      id: streamingId,
+      type: "assistant_message",
+      content: "",
+      timestamp: Date.now(),
+      isStreaming: true,
+    };
+
+    setItems((prev) => [streamingItem, userItem, ...prev]);
     setInputValue("");
     setIsProcessing(true);
 
     try {
-      const result = await executeAgenticEdit(message);
+      await executeAgenticEdit(message, {
+        // Stream text deltas into the assistant message
+        onTextDelta: (text) => {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === streamingId
+                ? { ...item, content: item.content + text }
+                : item
+            )
+          );
+        },
 
-      // Add action items for each command that was created
-      const actionItems: ConversationItem[] = result.commandIds.map((commandId) => {
-        const command = useHistoryStore.getState().commands.find((c) => c.id === commandId);
-        return {
-          id: crypto.randomUUID(),
-          type: "action" as const,
-          content: command?.label || "Edit action",
-          timestamp: Date.now(),
-          commandId,
-        };
+        // When a tool completes, add an action item
+        onToolComplete: (toolName, result, commandId) => {
+          if (commandId) {
+            const command = useHistoryStore.getState().commands.find((c) => c.id === commandId);
+            const actionItem: ConversationItem = {
+              id: crypto.randomUUID(),
+              type: "action",
+              content: command?.label || `${toolName}: ${result}`,
+              timestamp: Date.now(),
+              commandId,
+            };
+            // Insert action after the streaming message
+            setItems((prev) => {
+              const streamingIndex = prev.findIndex((i) => i.id === streamingId);
+              if (streamingIndex === -1) return [actionItem, ...prev];
+              const newItems = [...prev];
+              newItems.splice(streamingIndex + 1, 0, actionItem);
+              return newItems;
+            });
+          }
+        },
+
+        // When complete, finalize the streaming message
+        onComplete: (finalMessage) => {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === streamingId
+                ? { ...item, content: finalMessage || item.content, isStreaming: false }
+                : item
+            )
+          );
+          streamingMessageIdRef.current = null;
+        },
+
+        // On error, update the streaming message with error
+        onError: (error) => {
+          setItems((prev) =>
+            prev.map((item) =>
+              item.id === streamingId
+                ? { ...item, content: `Error: ${error.message}`, isStreaming: false }
+                : item
+            )
+          );
+          streamingMessageIdRef.current = null;
+        },
       });
-
-      // Add assistant message
-      const assistantItem: ConversationItem = {
-        id: crypto.randomUUID(),
-        type: "assistant_message",
-        content: result.message,
-        timestamp: Date.now(),
-      };
-
-      // Add items in reverse order so newest appears first
-      setItems((prev) => [assistantItem, ...actionItems.reverse(), ...prev]);
     } catch (err) {
+      // Error already handled by onError callback, but just in case
       const errorMsg = err instanceof Error ? err.message : String(err);
-      const errorItem: ConversationItem = {
-        id: crypto.randomUUID(),
-        type: "assistant_message",
-        content: `Error: ${errorMsg}`,
-        timestamp: Date.now(),
-      };
-      setItems((prev) => [errorItem, ...prev]);
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === streamingId
+            ? { ...item, content: `Error: ${errorMsg}`, isStreaming: false }
+            : item
+        )
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -225,16 +277,23 @@ function ConversationItemRow({ item, isActive, onRemove }: ConversationItemRowPr
           {item.type === "action" && isActive && (
             <span className="text-xs text-neutral-500">(click x to undo)</span>
           )}
+          {item.isStreaming && (
+            <span className="text-xs text-green-400 animate-pulse">streaming...</span>
+          )}
         </div>
-        <p className="text-sm text-neutral-200 break-words">{item.content}</p>
+        <p className="text-sm text-neutral-200 break-words whitespace-pre-wrap">
+          {item.content || (item.isStreaming ? "..." : "")}
+        </p>
       </div>
-      <button
-        onClick={onRemove}
-        className="shrink-0 p-1 text-neutral-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
-        title={item.type === "action" ? "Undo this action" : "Remove"}
-      >
-        <X size={14} />
-      </button>
+      {!item.isStreaming && (
+        <button
+          onClick={onRemove}
+          className="shrink-0 p-1 text-neutral-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+          title={item.type === "action" ? "Undo this action" : "Remove"}
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   );
 }
