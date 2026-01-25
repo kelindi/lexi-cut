@@ -18,6 +18,7 @@
     "@paper-design/shaders-react": "^0.0.71",
     "@phosphor-icons/react": "^2.1.10",
     "@remotion/player": "^4.0.409",
+    "@remotion/transitions": "^4.0.409",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-http": "^2.5.6",

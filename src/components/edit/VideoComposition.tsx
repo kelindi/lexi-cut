@@ -1,7 +1,15 @@
-import { AbsoluteFill, Sequence, Video, Audio, prefetch } from "remotion";
+import { AbsoluteFill, Video, Audio, prefetch } from "remotion";
+import {
+  TransitionSeries,
+  linearTiming,
+} from "@remotion/transitions";
+import { fade } from "@remotion/transitions/fade";
 import { useEffect } from "react";
 import type { Segment } from "../../types";
 import { FPS } from "../../stores/usePlaybackStore";
+
+// Subtle cross-fade duration in frames (~0.17 seconds at 30fps)
+const TRANSITION_FRAMES = 5;
 
 interface VideoCompositionProps {
   segments: Segment[];
@@ -44,56 +52,71 @@ export const VideoComposition: React.FC<VideoCompositionProps> = ({
 
   return (
     <AbsoluteFill style={{ backgroundColor: "#000" }}>
-      {segments.map((seg, index) => {
-        // Ensure segments are contiguous - use previous segment's end frame
-        const startFrame = index === 0
-          ? 0
-          : segments[index - 1].startFrame + segments[index - 1].durationFrames;
+      <TransitionSeries>
+        {segments.flatMap((seg, index) => {
+          // Check if this segment has a separate audio source (B-roll case)
+          const hasSeparateAudio = !!seg.audioSourceId;
 
-        // Check if this segment has a separate audio source (B-roll case)
-        const hasSeparateAudio = !!seg.audioSourceId;
+          const sequenceElement = (
+            <TransitionSeries.Sequence
+              key={seg.sentenceIds.join("-")}
+              durationInFrames={seg.durationFrames}
+              premountFor={PREMOUNT_FRAMES}
+            >
+              <AbsoluteFill>
+                {hasSeparateAudio ? (
+                  // B-roll: Muted video + separate audio from original source
+                  <>
+                    <Video
+                      src={videoUrls?.[seg.sourcePath] || ""}
+                      startFrom={Math.round(seg.sourceStart * FPS)}
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                      pauseWhenBuffering
+                      muted
+                    />
+                    <Audio
+                      src={videoUrls?.[seg.audioSourcePath!] || ""}
+                      startFrom={Math.round((seg.audioStart ?? 0) * FPS)}
+                      pauseWhenBuffering
+                    />
+                  </>
+                ) : (
+                  // Normal: Video with its own audio
+                  <Video
+                    src={videoUrls?.[seg.sourcePath] || ""}
+                    startFrom={Math.round(seg.sourceStart * FPS)}
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                    pauseWhenBuffering
+                  />
+                )}
+              </AbsoluteFill>
+            </TransitionSeries.Sequence>
+          );
 
-        return (
-          <Sequence
-            key={seg.sentenceIds.join("-")}
-            from={startFrame}
-            durationInFrames={seg.durationFrames}
-            premountFor={PREMOUNT_FRAMES}
-          >
-            {hasSeparateAudio ? (
-              // B-roll: Muted video + separate audio from original source
-              <>
-                <Video
-                  src={videoUrls?.[seg.sourcePath] || ""}
-                  startFrom={Math.round(seg.sourceStart * FPS)}
-                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                  pauseWhenBuffering
-                  muted
-                />
-                <Audio
-                  src={videoUrls?.[seg.audioSourcePath!] || ""}
-                  startFrom={Math.round((seg.audioStart ?? 0) * FPS)}
-                  pauseWhenBuffering
-                />
-              </>
-            ) : (
-              // Normal: Video with its own audio
-              <Video
-                src={videoUrls?.[seg.sourcePath] || ""}
-                startFrom={Math.round(seg.sourceStart * FPS)}
-                style={{ width: "100%", height: "100%", objectFit: "contain" }}
-                pauseWhenBuffering
-              />
-            )}
-          </Sequence>
-        );
-      })}
+          // Add transition before this sequence (except for the first one)
+          if (index > 0) {
+            return [
+              <TransitionSeries.Transition
+                key={`transition-${index}`}
+                presentation={fade()}
+                timing={linearTiming({ durationInFrames: TRANSITION_FRAMES })}
+              />,
+              sequenceElement,
+            ];
+          }
+
+          return [sequenceElement];
+        })}
+      </TransitionSeries>
     </AbsoluteFill>
   );
 };
 
 export function calculateTotalFrames(segments: Segment[]): number {
   if (segments.length === 0) return 1;
-  const last = segments[segments.length - 1];
-  return last.startFrame + last.durationFrames;
+  // Sum all segment durations
+  const totalSegmentFrames = segments.reduce((sum, seg) => sum + seg.durationFrames, 0);
+  // Subtract transition overlaps (one transition between each pair of segments)
+  const transitionCount = Math.max(0, segments.length - 1);
+  return totalSegmentFrames - (transitionCount * TRANSITION_FRAMES);
 }

@@ -10,7 +10,7 @@ import type {
   BrollClassification,
   VideoOverride,
 } from "../types";
-import { saveProjectData, loadProjectData, createTimelineFromSentences, type ProjectData } from "../api/projects";
+import { saveProjectData, loadProjectData, createTimelineFromSentences, loadProjects, saveProjects, type ProjectData } from "../api/projects";
 import { useSourcesStore } from "./useSourcesStore";
 
 interface ProjectState {
@@ -204,6 +204,22 @@ export const useProjectStore = create<ProjectState>((set) => ({
     };
 
     await saveProjectData(data);
+
+    // Update project metadata with thumbnail from first source
+    if (sources.length > 0 && sources[0].thumbnail) {
+      try {
+        const projectList = await loadProjects();
+        const updatedList = projectList.map((p) =>
+          p.id === state.projectId
+            ? { ...p, thumbnail: sources[0].thumbnail, updatedAt: Date.now() }
+            : p
+        );
+        await saveProjects(updatedList);
+      } catch (err) {
+        console.error("Failed to update project thumbnail:", err);
+      }
+    }
+
     set({ isDirty: false, lastSavedAt: Date.now() });
   },
 

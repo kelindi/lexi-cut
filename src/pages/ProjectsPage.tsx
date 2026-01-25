@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, FolderOpen, FilmStrip, X } from "@phosphor-icons/react";
+import { Plus, FolderOpen, X } from "@phosphor-icons/react";
 import { Quantum } from "ldrs/react";
 import "ldrs/react/Quantum.css";
 import { useProjectStore } from "../stores/useProjectStore";
@@ -71,16 +71,8 @@ export function ProjectsPage() {
 
   return (
     <main className="flex min-h-screen flex-col bg-[#0a0a0a]">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-white/5 px-8 py-6">
-        <div className="flex items-center gap-3">
-          <FilmStrip size={28} weight="duotone" className="text-white/80" />
-          <h1 className="text-xl font-semibold text-white">Lexi Cut</h1>
-        </div>
-      </header>
-
       {/* Content */}
-      <div className="flex-1 px-8 py-8">
+      <div className="flex-1 px-8 py-10">
         <div className="mx-auto max-w-4xl">
           {/* Section Title */}
           <div className="mb-6 flex items-center justify-between">
