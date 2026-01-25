@@ -20,6 +20,7 @@ import { useSourcesStore } from "../../stores/useSourcesStore";
 import { usePlaybackStore, secondsToFrames, framesToSeconds } from "../../stores/usePlaybackStore";
 import { useTimelineSegments } from "../../hooks/useTimelineSegments";
 import { matchDescriptionsToSentences } from "../../utils/descriptionMatcher";
+import { clearVideoOverride } from "../../stores/useAgenticStore";
 import type { Sentence, TimelineEntry, SourceDescription } from "../../types";
 
 // Color palette for source files - matches Timeline.tsx
@@ -78,6 +79,11 @@ export function TranscriptPanel() {
       }
     }
     return map;
+  }, [sources]);
+
+  // Build sourceId → name map for B-roll display
+  const sourceNameMap = useMemo(() => {
+    return new Map(sources.map((s) => [s.id, s.name]));
   }, [sources]);
 
   // Match descriptions to sentences (each description shows once, on first overlapping sentence)
@@ -165,7 +171,8 @@ export function TranscriptPanel() {
       if (currentFrame >= seg.startFrame && currentFrame < seg.startFrame + seg.durationFrames) {
         const offsetFrames = currentFrame - seg.startFrame;
         const offsetSeconds = framesToSeconds(offsetFrames);
-        const sourceTime = seg.sourceStart + offsetSeconds;
+        // Use audio timing for word highlighting (important for B-roll where video timing differs)
+        const sourceTime = (seg.audioStart ?? seg.sourceStart) + offsetSeconds;
 
         // Find which sentence is active
         let activeSentenceId = seg.sentenceIds[0];
@@ -302,6 +309,11 @@ export function TranscriptPanel() {
     toggleWordExcluded(sentenceId, wordId);
   }, [toggleWordExcluded]);
 
+  // Handle clearing video override (B-roll removal)
+  const handleClearVideoOverride = useCallback((sentenceId: string) => {
+    clearVideoOverride(sentenceId);
+  }, []);
+
   // Register sentence ref for scroll tracking
   const registerSentenceRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -356,6 +368,8 @@ export function TranscriptPanel() {
                     sourceColor={sourceColor}
                     description={description}
                     brollClassification={brollClassification}
+                    videoOverride={entry.videoOverride}
+                    brollSourceName={entry.videoOverride ? sourceNameMap.get(entry.videoOverride.sourceId) : undefined}
                     currentSourceTime={
                       !isExcluded && activePlayback?.sentenceId === sentence.sentenceId
                         ? activePlayback.sourceTime
@@ -367,6 +381,7 @@ export function TranscriptPanel() {
                     onToggleWord={(wordId) => handleToggleWord(sentence.sentenceId, wordId)}
                     onSelectWord={handleSelectWord}
                     onSeekToWord={handleSeekToWord}
+                    onClearVideoOverride={() => handleClearVideoOverride(sentence.sentenceId)}
                   />
                 </div>
               );

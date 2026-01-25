@@ -122,6 +122,35 @@ export function getAgentContext(): string {
   lines.push("  ACTIVE = visible in timeline");
   lines.push("  EXCLUDED = removed from timeline");
 
+  // Add available B-roll sources section
+  const transcriptlessSources = sources.filter(
+    (s) => state.transcriptlessSourceIds.includes(s.id)
+  );
+  if (transcriptlessSources.length > 0) {
+    lines.push("");
+    lines.push("---");
+    lines.push("AVAILABLE B-ROLL SOURCES");
+    lines.push("========================");
+    lines.push("These are transcriptless video sources for video overrides.");
+    lines.push("When applied: B-roll VIDEO plays while the sentence's original AUDIO continues.");
+    lines.push("(B-roll audio is muted - only the video is used)");
+    lines.push("");
+    transcriptlessSources.forEach((source) => {
+      const duration = source.duration?.toFixed(1) ?? "unknown";
+      lines.push(`Source ID: ${source.id}`);
+      lines.push(`  Name: "${source.name}"`);
+      lines.push(`  Duration: ${duration}s`);
+      // Include visual descriptions if available
+      if (source.descriptions && source.descriptions.length > 0) {
+        lines.push(`  Visual content:`);
+        source.descriptions.forEach((d) => {
+          lines.push(`    ${d.start.toFixed(1)}s-${d.end.toFixed(1)}s: ${d.description}`);
+        });
+      }
+      lines.push("");
+    });
+  }
+
   return lines.join("\n");
 }
 
@@ -311,6 +340,71 @@ export function reorderSentences(newOrder: string[]): string {
     label,
     execute: () => reorderSentencesById(newOrder),
     undo: () => reorderSentencesById(previousOrder),
+  });
+}
+
+/**
+ * Set video override on a sentence with history tracking
+ */
+export function setVideoOverride(
+  sentenceId: string,
+  sourceId: string,
+  start: number,
+  end: number
+): string {
+  const state = useProjectStore.getState();
+  const { pushCommand } = useHistoryStore.getState();
+
+  // Find the entry and capture previous override for undo
+  const entry = state.timeline.entries.find((e) => e.sentenceId === sentenceId);
+  const previousOverride = entry?.videoOverride;
+
+  // Get source name for label
+  const source = useSourcesStore.getState().sources.find((s) => s.id === sourceId);
+  const sourceName = source?.name || sourceId;
+  const label = `Video override: ${sourceName} (${start.toFixed(1)}s-${end.toFixed(1)}s)`;
+
+  // Apply the override
+  state.setVideoOverride(sentenceId, { sourceId, start, end });
+
+  // Record command for undo
+  return pushCommand({
+    label,
+    execute: () => state.setVideoOverride(sentenceId, { sourceId, start, end }),
+    undo: () => state.setVideoOverride(sentenceId, previousOverride ?? null),
+  });
+}
+
+/**
+ * Clear video override from a sentence with history tracking
+ */
+export function clearVideoOverride(sentenceId: string): string {
+  const state = useProjectStore.getState();
+  const { pushCommand } = useHistoryStore.getState();
+
+  // Find the entry and capture previous override for undo
+  const entry = state.timeline.entries.find((e) => e.sentenceId === sentenceId);
+  const previousOverride = entry?.videoOverride;
+
+  if (!previousOverride) {
+    // Nothing to clear, but return a command ID anyway for consistency
+    return pushCommand({
+      label: "Clear video override (no-op)",
+      execute: () => {},
+      undo: () => {},
+    });
+  }
+
+  const label = `Cleared video override from sentence`;
+
+  // Clear the override
+  state.setVideoOverride(sentenceId, null);
+
+  // Record command for undo (restore the previous override)
+  return pushCommand({
+    label,
+    execute: () => state.setVideoOverride(sentenceId, null),
+    undo: () => state.setVideoOverride(sentenceId, previousOverride),
   });
 }
 

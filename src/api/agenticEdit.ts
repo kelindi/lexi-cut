@@ -13,6 +13,8 @@ import {
   deleteSentences,
   restoreSentences,
   reorderSentences,
+  setVideoOverride,
+  clearVideoOverride,
 } from "../stores/useAgenticStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { classifyAsBroll } from "./brollClassification";
@@ -136,6 +138,52 @@ const TOOLS = [
       required: ["sentence_ids", "reason"],
     },
   },
+  {
+    name: "set_video_override",
+    description:
+      "Replace ONLY the video for a sentence with B-roll footage. The sentence's original AUDIO continues to play " +
+      "while the B-roll VIDEO is shown (B-roll audio is muted). This creates the classic B-roll effect where the " +
+      "speaker's voice continues over cutaway footage. Use this to: 1) Cover jump cuts after removing content, " +
+      "2) Add visual variety during talking head sections, 3) Illustrate what the speaker is discussing. " +
+      "The source_id must be from AVAILABLE B-ROLL SOURCES section.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sentence_id: {
+          type: "string",
+          description: "The sentence to apply the video override to",
+        },
+        source_id: {
+          type: "string",
+          description: "The source ID to use for video (from AVAILABLE B-ROLL SOURCES)",
+        },
+        start: {
+          type: "number",
+          description: "Start time in the override source (seconds)",
+        },
+        end: {
+          type: "number",
+          description: "End time in the override source (seconds)",
+        },
+      },
+      required: ["sentence_id", "source_id", "start", "end"],
+    },
+  },
+  {
+    name: "clear_video_override",
+    description:
+      "Remove a video override from a sentence, restoring its original video.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sentence_id: {
+          type: "string",
+          description: "The sentence to clear the video override from",
+        },
+      },
+      required: ["sentence_id"],
+    },
+  },
 ];
 
 const SYSTEM_PROMPT = `You are an AI video editor assistant. You help users edit their video timeline by removing unwanted content, fixing pacing, and improving flow.
@@ -146,6 +194,8 @@ You have access to the following tools:
 - delete_sentences: Remove entire sentences from the timeline
 - restore_sentences: Bring back previously deleted sentences
 - reorder_sentences: Change the order of sentences in the timeline
+- set_video_override: Replace video (not audio) with footage from another source
+- clear_video_override: Remove a video override, restoring original video
 
 Guidelines:
 1. When asked to remove filler words (um, uh, ah, like, you know), find them in the word list and delete them.
@@ -155,6 +205,14 @@ Guidelines:
 5. Consider creative flow - you can reorder sentences to create a better narrative arc or logical progression. Use reorder_sentences to shift content around for better storytelling.
 6. Work systematically through the content, making multiple tool calls as needed.
 7. After making changes, provide a brief summary of what you did.
+
+B-roll video override guidelines:
+1. Video overrides show B-roll VIDEO while the sentence's original AUDIO continues (B-roll audio is muted)
+2. Use set_video_override to cover jump cuts created by deleted content
+3. When you delete words/sentences that create awkward visual cuts, override adjacent sentences with b-roll
+4. Check "AVAILABLE B-ROLL SOURCES" section for transcriptless video sources
+5. Match override duration roughly to sentence duration
+6. Use visual descriptions to pick appropriate b-roll content that relates to what's being said
 
 The user will provide context about the current timeline state, including sentence IDs, word IDs, and their text content.
 Words marked with ~ prefix are already excluded/deleted.
@@ -267,6 +325,27 @@ function executeTool(
         return {
           success: true,
           result: `Marked ${sentenceIds.length} sentence(s) as B-roll (${reason})`,
+        };
+      }
+      case "set_video_override": {
+        const sentenceId = input.sentence_id as string;
+        const sourceId = input.source_id as string;
+        const start = input.start as number;
+        const end = input.end as number;
+        const commandId = setVideoOverride(sentenceId, sourceId, start, end);
+        return {
+          success: true,
+          result: `Set video override on sentence ${sentenceId} to source ${sourceId} (${start.toFixed(1)}s-${end.toFixed(1)}s)`,
+          commandId,
+        };
+      }
+      case "clear_video_override": {
+        const sentenceId = input.sentence_id as string;
+        const commandId = clearVideoOverride(sentenceId);
+        return {
+          success: true,
+          result: `Cleared video override from sentence ${sentenceId}`,
+          commandId,
         };
       }
       default:
@@ -554,6 +633,8 @@ You have access to the following tools:
 - restore_sentences: Bring back previously deleted sentences
 - reorder_sentences: Change the order of sentences in the timeline
 - mark_broll: Mark sentences as B-roll footage
+- set_video_override: Replace video (not audio) with footage from a B-roll source
+- clear_video_override: Remove a video override, restoring original video
 
 Your tasks:
 1. Identify retakes - sentences that are duplicated or very similar content within a short time span. Keep the best take (usually more complete, higher confidence) and delete the others using delete_sentences.
@@ -564,6 +645,13 @@ Your tasks:
    - Sentences shorter than 1 second (reason: 'too-short')
    - Content that shows environment, transitions, or isn't relevant to the narrative (reason: 'irrelevant')
    - B-roll stays in timeline but displays differently to help the editor identify it
+6. Apply B-roll automatically - When B-roll sources are available (see AVAILABLE B-ROLL SOURCES section):
+   - Video overrides show B-roll VIDEO while the sentence's original AUDIO continues (B-roll audio is muted)
+   - After removing content that creates jump cuts, apply b-roll to cover the visual discontinuity
+   - Use set_video_override on sentences adjacent to removed content
+   - Pick b-roll clips that match what the speaker is saying (use visual descriptions)
+   - Prefer shorter b-roll clips (3-5s) over long ones
+   - Don't overuse b-roll - only apply where it improves the cut
 
 Guidelines:
 - Be conservative - only delete clear duplicates/retakes, not unique content
@@ -571,6 +659,11 @@ Guidelines:
 - Prefer keeping later takes over earlier ones (speaker usually improves)
 - Work systematically, making multiple tool calls as needed
 - After making changes, provide a brief summary of what you did
+
+Example B-roll workflow:
+1. Delete retake: delete_sentences(["sent-123"])
+2. Adjacent sentence sent-122 now has awkward cut
+3. Apply b-roll: set_video_override({ sentence_id: "sent-122", source_id: "broll-source-1", start: 5.0, end: 8.0 })
 
 The timeline is currently in chronological order. Refine it for the best viewing experience.
 Words marked with ~ prefix are already excluded/deleted.

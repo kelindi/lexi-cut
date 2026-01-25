@@ -1,4 +1,4 @@
-import { AbsoluteFill, Sequence, Video, prefetch } from "remotion";
+import { AbsoluteFill, Sequence, Video, Audio, prefetch } from "remotion";
 import { useEffect } from "react";
 import type { Segment } from "../../types";
 import { FPS } from "../../stores/usePlaybackStore";
@@ -50,6 +50,9 @@ export const VideoComposition: React.FC<VideoCompositionProps> = ({
           ? 0
           : segments[index - 1].startFrame + segments[index - 1].durationFrames;
 
+        // Check if this segment has a separate audio source (B-roll case)
+        const hasSeparateAudio = !!seg.audioSourceId;
+
         return (
           <Sequence
             key={seg.sentenceIds.join("-")}
@@ -57,12 +60,31 @@ export const VideoComposition: React.FC<VideoCompositionProps> = ({
             durationInFrames={seg.durationFrames}
             premountFor={PREMOUNT_FRAMES}
           >
-            <Video
-              src={videoUrls?.[seg.sourcePath] || ""}
-              startFrom={Math.round(seg.sourceStart * FPS)}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
-              pauseWhenBuffering
-            />
+            {hasSeparateAudio ? (
+              // B-roll: Muted video + separate audio from original source
+              <>
+                <Video
+                  src={videoUrls?.[seg.sourcePath] || ""}
+                  startFrom={Math.round(seg.sourceStart * FPS)}
+                  style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                  pauseWhenBuffering
+                  muted
+                />
+                <Audio
+                  src={videoUrls?.[seg.audioSourcePath!] || ""}
+                  startFrom={Math.round((seg.audioStart ?? 0) * FPS)}
+                  pauseWhenBuffering
+                />
+              </>
+            ) : (
+              // Normal: Video with its own audio
+              <Video
+                src={videoUrls?.[seg.sourcePath] || ""}
+                startFrom={Math.round(seg.sourceStart * FPS)}
+                style={{ width: "100%", height: "100%", objectFit: "contain" }}
+                pauseWhenBuffering
+              />
+            )}
           </Sequence>
         );
       })}

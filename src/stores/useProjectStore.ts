@@ -8,6 +8,7 @@ import type {
   ProcessingProgress,
   Source,
   BrollClassification,
+  VideoOverride,
 } from "../types";
 import { saveProjectData, loadProjectData, createTimelineFromSentences, type ProjectData } from "../api/projects";
 import { useSourcesStore } from "./useSourcesStore";
@@ -70,6 +71,7 @@ interface ProjectState {
   deleteSentencesByIds: (sentenceIds: string[]) => void;
   restoreSentencesByIds: (sentenceIds: string[]) => void;
   reorderSentencesById: (sentenceIds: string[]) => void;
+  setVideoOverride: (sentenceId: string, override: VideoOverride | null) => void;
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
@@ -396,6 +398,20 @@ export const useProjectStore = create<ProjectState>((set) => ({
         isDirty: true,
       };
     }),
+
+  // Agent-only: set or clear video override on a timeline entry
+  setVideoOverride: (sentenceId: string, override: VideoOverride | null) =>
+    set((state) => ({
+      timeline: {
+        ...state.timeline,
+        entries: state.timeline.entries.map((entry) =>
+          entry.sentenceId === sentenceId
+            ? { ...entry, videoOverride: override ?? undefined }
+            : entry
+        ),
+      },
+      isDirty: true,
+    })),
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds, isDirty: true }),

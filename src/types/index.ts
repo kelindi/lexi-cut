@@ -158,6 +158,11 @@ export interface Segment {
   startFrame: number; // frame position in timeline
   durationFrames: number;
   text: string;
+  // Optional separate audio source (for B-roll: video from one source, audio from another)
+  audioSourceId?: string;
+  audioSourcePath?: string;
+  audioStart?: number;
+  audioEnd?: number;
 }
 
 // --- Processing State ---

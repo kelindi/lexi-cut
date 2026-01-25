@@ -3,7 +3,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { DotsSixVertical, X, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { WordSpan } from "./WordSpan";
-import type { Word, Sentence, BrollClassification } from "../../types";
+import type { Word, Sentence, BrollClassification, VideoOverride } from "../../types";
 import { formatTime } from "../../stores/usePlaybackStore";
 
 interface WordData {
@@ -23,6 +23,8 @@ interface SentenceItemProps {
   sourceColor: string;
   description?: string;
   brollClassification?: BrollClassification;
+  videoOverride?: VideoOverride;
+  brollSourceName?: string; // Display name for the B-roll source
   currentSourceTime: number | null;
   onSelect: () => void;
   onDelete: () => void;
@@ -30,6 +32,7 @@ interface SentenceItemProps {
   onToggleWord: (wordId: string) => void;
   onSelectWord: (wordId: string) => void;
   onSeekToWord: (sourceTime: number) => void;
+  onClearVideoOverride?: () => void;
 }
 
 export function SentenceItem({
@@ -42,6 +45,8 @@ export function SentenceItem({
   sourceColor,
   description,
   brollClassification,
+  videoOverride,
+  brollSourceName,
   currentSourceTime,
   onSelect,
   onDelete,
@@ -49,6 +54,7 @@ export function SentenceItem({
   onToggleWord,
   onSelectWord,
   onSeekToWord,
+  onClearVideoOverride,
 }: SentenceItemProps) {
   const isBroll = brollClassification?.isBroll ?? false;
   const {
@@ -173,6 +179,27 @@ export function SentenceItem({
           <div className="text-[12px] text-neutral-400 italic font-sans mb-1 select-none">
             [{description}]
           </div>
+        )}
+        {/* Video override indicator - clickable to remove B-roll */}
+        {videoOverride && !isExcluded && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onClearVideoOverride?.();
+            }}
+            className="text-[12px] text-violet-400 italic font-sans mb-1 select-none
+                       hover:text-violet-300 transition-colors cursor-pointer
+                       flex items-center gap-1"
+            title="Click to remove B-roll video override"
+          >
+            <span className="text-violet-500">[B-Roll:</span>
+            <span>{brollSourceName || videoOverride.sourceId}</span>
+            <span className="text-neutral-500">
+              {videoOverride.start.toFixed(1)}s-{videoOverride.end.toFixed(1)}s
+            </span>
+            <span className="text-violet-500">]</span>
+            <X size={12} weight="bold" className="opacity-60 hover:opacity-100" />
+          </button>
         )}
         {/* Sentence text or B-roll indicator */}
         <div className="text-[14px] leading-relaxed font-mono font-light">

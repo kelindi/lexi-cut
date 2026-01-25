@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Quantum } from "ldrs/react";
-import "ldrs/react/Quantum.css";
+import { Heatmap } from "@paper-design/shaders-react";
 import type { ProcessingPhase, ProcessingProgress } from "../../types";
 
 interface ProcessingViewProps {
@@ -28,11 +27,7 @@ const FUN_MESSAGES = [
   "Channeling Spielberg energy...",
 ];
 
-export function ProcessingView({
-  phase,
-  error,
-  onRetry,
-}: ProcessingViewProps) {
+export function ProcessingView({ phase, error, onRetry }: ProcessingViewProps) {
   const [messageIndex, setMessageIndex] = useState(0);
 
   useEffect(() => {
@@ -40,10 +35,10 @@ export function ProcessingView({
       return;
     }
 
-    // Rotate messages every 3 seconds
+    // Rotate messages synced with shader animation (~1.5s cycle at speed 1.48)
     const interval = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % FUN_MESSAGES.length);
-    }, 3000);
+    }, 1500);
 
     return () => clearInterval(interval);
   }, [phase]);
@@ -76,13 +71,34 @@ export function ProcessingView({
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6">
-      {/* Quantum loader */}
-      <Quantum size="80" speed="1.75" color="white" />
+    <div className="relative h-full w-full">
+      {/* Heatmap shader background */}
+      <Heatmap
+        style={{
+          width: "100%",
+          height: "100%",
+          position: "absolute",
+          inset: 0,
+        }}
+        image="/Lexi-cut.svg"
+        colors={["#05ddfa", "#f652ffc2"]}
+        colorBack="#000000"
+        contour={0.5}
+        angle={0}
+        noise={0.44}
+        innerGlow={0}
+        outerGlow={0.5}
+        speed={1.48}
+        scale={0.7}
+        offsetX={0}
+        offsetY={0}
+      />
 
-      {/* Fun rotating message */}
-      <div className="text-sm text-neutral-400">
-        {FUN_MESSAGES[messageIndex]}
+      {/* Fun rotating message overlaid on top */}
+      <div className="absolute inset-0 z-10 flex items-center justify-center">
+        <div className="text-xl font-bold text-white">
+          {FUN_MESSAGES[messageIndex]}
+        </div>
       </div>
     </div>
   );
