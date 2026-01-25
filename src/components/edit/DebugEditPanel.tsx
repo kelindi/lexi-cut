@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useProjectStore } from "../../stores/useProjectStore";
+import { useProjectStore, getWordsWithIds } from "../../stores/useProjectStore";
 
 /**
  * Debug panel for testing agent word deletion/restoration by IDs.
@@ -14,6 +14,7 @@ export function DebugEditPanel() {
   const [selectedSentenceId, setSelectedSentenceId] = useState<string>("");
   const [wordIdsInput, setWordIdsInput] = useState<string>("");
   const [lastResult, setLastResult] = useState<string>("");
+  const [showAllWords, setShowAllWords] = useState(false);
 
   const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
@@ -172,6 +173,36 @@ export function DebugEditPanel() {
           {lastResult}
         </div>
       )}
+
+      {/* All words with IDs */}
+      <div className="border-t border-neutral-700 pt-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-neutral-400">All Words with IDs</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowAllWords(!showAllWords)}
+              className="px-2 py-1 text-xs bg-neutral-700 hover:bg-neutral-600 text-neutral-200 rounded transition-colors"
+            >
+              {showAllWords ? "Hide" : "Show"}
+            </button>
+            <button
+              onClick={() => {
+                const text = getWordsWithIds();
+                navigator.clipboard.writeText(text);
+                setLastResult("Copied all words to clipboard!");
+              }}
+              className="px-2 py-1 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded transition-colors"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+        {showAllWords && (
+          <pre className="text-xs font-mono text-neutral-300 bg-neutral-800 p-2 rounded overflow-auto max-h-64 whitespace-pre-wrap">
+            {getWordsWithIds() || "(no words)"}
+          </pre>
+        )}
+      </div>
     </div>
   );
 }
