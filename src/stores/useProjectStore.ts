@@ -60,6 +60,12 @@ interface ProjectState {
   reorderEntry: (fromIndex: number, toIndex: number) => void;
   setEntryExcluded: (sentenceId: string, excluded: boolean) => void;
   toggleWordExcluded: (sentenceId: string, wordId: string) => void;
+  // Agent-only: batch operations by ID (used by agentic editing loop)
+  deleteWordsByIds: (sentenceId: string, wordIds: string[]) => void;
+  restoreWordsByIds: (sentenceId: string, wordIds: string[]) => void;
+  deleteSentencesByIds: (sentenceIds: string[]) => void;
+  restoreSentencesByIds: (sentenceIds: string[]) => void;
+  reorderSentencesById: (sentenceIds: string[]) => void;
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
@@ -262,6 +268,105 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isDirty: true,
     })),
 
+  // Agent-only: delete words by ID
+  deleteWordsByIds: (sentenceId: string, wordIds: string[]) =>
+    set((state) => {
+      const sentence = state.sentences.find((s) => s.sentenceId === sentenceId);
+      if (!sentence) return state;
+
+      // Only exclude word IDs that actually belong to this sentence
+      const validWordIds = new Set(sentence.wordIds);
+      const wordIdsToExclude = wordIds.filter((id) => validWordIds.has(id));
+
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: state.timeline.entries.map((entry) => {
+            if (entry.sentenceId !== sentenceId) return entry;
+            const newExcluded = new Set(entry.excludedWordIds);
+            wordIdsToExclude.forEach((id) => newExcluded.add(id));
+            return { ...entry, excludedWordIds: Array.from(newExcluded) };
+          }),
+        },
+        isDirty: true,
+      };
+    }),
+
+  // Agent-only: restore words by ID
+  restoreWordsByIds: (sentenceId: string, wordIds: string[]) =>
+    set((state) => {
+      const wordIdsToRestore = new Set(wordIds);
+
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: state.timeline.entries.map((entry) => {
+            if (entry.sentenceId !== sentenceId) return entry;
+            return {
+              ...entry,
+              excludedWordIds: entry.excludedWordIds.filter((id) => !wordIdsToRestore.has(id)),
+            };
+          }),
+        },
+        isDirty: true,
+      };
+    }),
+
+  // Agent-only: delete sentences by ID
+  deleteSentencesByIds: (sentenceIds: string[]) =>
+    set((state) => {
+      const idsToExclude = new Set(sentenceIds);
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: state.timeline.entries.map((entry) =>
+            idsToExclude.has(entry.sentenceId) ? { ...entry, excluded: true } : entry
+          ),
+        },
+        isDirty: true,
+      };
+    }),
+
+  // Agent-only: restore sentences by ID
+  restoreSentencesByIds: (sentenceIds: string[]) =>
+    set((state) => {
+      const idsToRestore = new Set(sentenceIds);
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: state.timeline.entries.map((entry) =>
+            idsToRestore.has(entry.sentenceId) ? { ...entry, excluded: false } : entry
+          ),
+        },
+        isDirty: true,
+      };
+    }),
+
+  // Agent-only: reorder all sentences by ID array (bulk reorder)
+  reorderSentencesById: (sentenceIds: string[]) =>
+    set((state) => {
+      const entryMap = new Map(state.timeline.entries.map((e) => [e.sentenceId, e]));
+
+      // Build new entries array in the specified order
+      const reorderedEntries = sentenceIds
+        .map((id) => entryMap.get(id))
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== undefined);
+
+      // Append any entries not in sentenceIds (preserves entries the agent didn't mention)
+      const specifiedIds = new Set(sentenceIds);
+      const remainingEntries = state.timeline.entries.filter(
+        (e) => !specifiedIds.has(e.sentenceId)
+      );
+
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: [...reorderedEntries, ...remainingEntries],
+        },
+        isDirty: true,
+      };
+    }),
+
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds, isDirty: true }),
 
@@ -353,3 +458,35 @@ export const useActiveSentences = () =>
       .map((entry) => sentenceMap.get(entry.sentenceId)!)
       .filter(Boolean);
   });
+
+/**
+ * Returns all words as a formatted string with word IDs.
+ * Format: "[wordId] word" for each word, grouped by sentence.
+ * Useful for agent context to reference words by ID.
+ */
+export function getWordsWithIds(): string {
+  const state = useProjectStore.getState();
+  const wordMap = new Map(state.words.map((w) => [w.id, w]));
+
+  return state.timeline.entries
+    .filter((entry) => !entry.excluded)
+    .map((entry) => {
+      const sentence = state.sentences.find((s) => s.sentenceId === entry.sentenceId);
+      if (!sentence) return "";
+
+      const excludedSet = new Set(entry.excludedWordIds);
+      const wordsStr = sentence.wordIds
+        .map((wordId) => {
+          const word = wordMap.get(wordId);
+          if (!word) return null;
+          const excluded = excludedSet.has(wordId);
+          return `[${wordId}]${excluded ? "~" : ""}${word.word}`;
+        })
+        .filter(Boolean)
+        .join(" ");
+
+      return `${entry.sentenceId}: ${wordsStr}`;
+    })
+    .filter((line) => line.length > 0)
+    .join("\n");
+}

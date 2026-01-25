@@ -27,6 +27,7 @@
     "react-dom": "^19.1.0",
     "react-resizable-panels": "^4.5.1",
     "remotion": "^4.0.409",
+    "zundo": "^2.3.0",
     "zustand": "^5.0.10"
   },
   "devDependencies": {

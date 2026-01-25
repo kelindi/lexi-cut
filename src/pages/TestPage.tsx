@@ -3,6 +3,8 @@ import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { TranscriptionTest } from "../components/test/TranscriptionTest";
 import { ClaudeTest } from "../components/test/ClaudeTest";
 import { GeminiTest } from "../components/test/GeminiTest";
+import { DebugEditPanel } from "../components/edit/DebugEditPanel";
+import { HistoryPanel } from "../components/edit/HistoryPanel";
 
 interface SectionProps {
   title: string;
@@ -42,6 +44,14 @@ export function TestPage() {
 
       <Section title="Gemini (Video Understanding)">
         <GeminiTest />
+      </Section>
+
+      <Section title="Agent Edit Functions (Word/Sentence Operations)" defaultOpen>
+        <DebugEditPanel />
+      </Section>
+
+      <Section title="Operation History (Selective Undo)" defaultOpen>
+        <HistoryPanel />
       </Section>
     </div>
   );
