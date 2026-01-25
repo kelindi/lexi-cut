@@ -87,6 +87,28 @@ export interface Sentence {
   originalGroupId?: string;  // For optional visual grouping
 }
 
+// --- Timeline (first-class edit state) ---
+
+export interface VideoOverride {
+  sourceId: string;
+  start: number;
+  end: number;
+}
+
+export interface TimelineEntry {
+  sentenceId: string;
+  text: string;              // Denormalized for AI readability
+  sourceId: string;
+  excluded: boolean;
+  excludedWordIds: string[];
+  videoOverride?: VideoOverride;
+}
+
+export interface Timeline {
+  version: number;  // Start at 1
+  entries: TimelineEntry[];
+}
+
 export interface DuplicateGroup {
   phrase: string;
   groupIds: string[];

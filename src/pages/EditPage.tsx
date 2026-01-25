@@ -33,6 +33,7 @@ export function EditPage() {
   const progress = useProjectStore((s) => s.progress);
   const error = useProjectStore((s) => s.error);
   const segmentGroups = useProjectStore((s) => s.segmentGroups);
+  const timeline = useProjectStore((s) => s.timeline);
   const setPhase = useProjectStore((s) => s.setPhase);
   const setProgress = useProjectStore((s) => s.setProgress);
   const setError = useProjectStore((s) => s.setError);
@@ -41,6 +42,7 @@ export function EditPage() {
   const setOrderedGroupIds = useProjectStore((s) => s.setOrderedGroupIds);
   const setSentences = useProjectStore((s) => s.setSentences);
   const setTranscriptlessSourceIds = useProjectStore((s) => s.setTranscriptlessSourceIds);
+  const initializeTimeline = useProjectStore((s) => s.initializeTimeline);
 
   // Run processing pipeline when sources are available and not already processed
   const runProcessing = useCallback(async () => {
@@ -75,6 +77,8 @@ export function EditPage() {
       setOrderedGroupIds(result.orderedGroupIds);
       setSentences(result.sentences);
       setTranscriptlessSourceIds(result.transcriptlessSourceIds);
+      // Initialize the timeline from fresh sentences
+      initializeTimeline(result.sentences);
       setPhase("ready");
       setProgress(null);
     } catch (e) {
@@ -90,25 +94,28 @@ export function EditPage() {
     setOrderedGroupIds,
     setSentences,
     setTranscriptlessSourceIds,
+    initializeTimeline,
     updateSourceDescriptions,
   ]);
 
   // Auto-run pipeline when sources change and we don't have results
   const pipelineStarted = useRef(false);
   useEffect(() => {
-    if (sources.length > 0 && segmentGroups.length === 0 && phase === "idle" && !pipelineStarted.current) {
+    // Check both segmentGroups (legacy) and timeline.entries for existing data
+    const hasData = segmentGroups.length > 0 || timeline.entries.length > 0;
+    if (sources.length > 0 && !hasData && phase === "idle" && !pipelineStarted.current) {
       pipelineStarted.current = true;
       runProcessing();
     }
-  }, [sources.length, segmentGroups.length, phase, runProcessing]);
+  }, [sources.length, segmentGroups.length, timeline.entries.length, phase, runProcessing]);
 
-  const isReady = phase === "ready" && segmentGroups.length > 0;
+  const isReady = phase === "ready" && (segmentGroups.length > 0 || timeline.entries.length > 0);
   const isProcessing = phase !== "idle" && phase !== "ready" && phase !== "error";
 
   // Show processing/error states
   if (isProcessing || phase === "error" || (phase === "idle" && sources.length === 0)) {
     return (
-      <main className="h-[calc(100vh-8rem)] bg-[#0a0a0a]">
+      <main className="h-[calc(100vh-3rem)] bg-[#0a0a0a]">
         <ProcessingView
           phase={phase}
           progress={progress}
@@ -121,14 +128,14 @@ export function EditPage() {
 
   if (!isReady) {
     return (
-      <main className="h-[calc(100vh-8rem)] bg-[#0a0a0a]">
+      <main className="h-[calc(100vh-3rem)] bg-[#0a0a0a]">
         <ProcessingView phase="idle" progress={null} error={null} />
       </main>
     );
   }
 
   return (
-    <main className="h-[calc(100vh-8rem)] bg-[#0a0a0a]">
+    <main className="h-[calc(100vh-3rem)] bg-[#0a0a0a]">
       <PanelGroup orientation="vertical" className="h-full">
         {/* Main content area */}
         <Panel defaultSize={70} minSize={30}>

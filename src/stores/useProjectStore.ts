@@ -3,11 +3,12 @@ import type {
   Word,
   SegmentGroup,
   Sentence,
+  Timeline,
   ProcessingPhase,
   ProcessingProgress,
   Source,
 } from "../types";
-import { saveProjectData, loadProjectData, type ProjectData } from "../api/projects";
+import { saveProjectData, loadProjectData, createTimelineFromSentences, type ProjectData } from "../api/projects";
 import { useSourcesStore } from "./useSourcesStore";
 
 interface ProjectState {
@@ -24,12 +25,8 @@ interface ProjectState {
   segmentGroups: SegmentGroup[];
   sentences: Sentence[];
 
-  // Editable timeline (the "screenplay") - sentence-level ordering
-  orderedSentenceIds: string[];
-  excludedSentenceIds: string[];
-
-  // Word-level exclusions (for trimming individual words)
-  excludedWordIds: string[];
+  // First-class timeline structure
+  timeline: Timeline;
 
   // Sources without transcripts (silent/no audio)
   transcriptlessSourceIds: string[];
@@ -52,28 +49,36 @@ interface ProjectState {
   saveProject: (sources: Source[]) => Promise<void>;
   loadProject: (projectId: string) => Promise<ProjectData | null>;
 
-  // Actions
+  // Raw data actions
   setWords: (words: Word[]) => void;
   setSegmentGroups: (groups: SegmentGroup[]) => void;
   setSentences: (sentences: Sentence[]) => void;
-  setOrderedSentenceIds: (ids: string[]) => void;
-  reorderSentences: (fromIndex: number, toIndex: number) => void;
-  excludeSentence: (id: string) => void;
-  restoreSentence: (id: string) => void;
-  toggleWordExclusion: (wordId: string) => void;
+
+  // Timeline actions
+  initializeTimeline: (sentences: Sentence[]) => void;
+  setTimeline: (timeline: Timeline) => void;
+  reorderEntry: (fromIndex: number, toIndex: number) => void;
+  setEntryExcluded: (sentenceId: string, excluded: boolean) => void;
+  toggleWordExcluded: (sentenceId: string, wordId: string) => void;
+
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
+
   // Legacy group actions (kept for backward compatibility)
   setOrderedGroupIds: (ids: string[]) => void;
   excludeGroup: (id: string) => void;
   restoreGroup: (id: string) => void;
   reorderGroups: (fromIndex: number, toIndex: number) => void;
   updateGroupText: (id: string, text: string) => void;
+
+  // Processing actions
   setPhase: (phase: ProcessingPhase) => void;
   setProgress: (progress: ProcessingProgress | null) => void;
   setError: (error: string | null) => void;
   reset: () => void;
 }
+
+const emptyTimeline: Timeline = { version: 1, entries: [] };
 
 const initialState = {
   projectId: null as string | null,
@@ -84,9 +89,7 @@ const initialState = {
   words: [],
   segmentGroups: [],
   sentences: [],
-  orderedSentenceIds: [],
-  excludedSentenceIds: [],
-  excludedWordIds: [],
+  timeline: emptyTimeline,
   transcriptlessSourceIds: [] as string[],
   orderedGroupIds: [],
   excludedGroupIds: [],
@@ -124,16 +127,14 @@ export const useProjectStore = create<ProjectState>((set) => ({
           words: data.words,
           sentences: data.sentences,
           segmentGroups: data.segmentGroups,
-          orderedSentenceIds: data.orderedSentenceIds,
-          excludedSentenceIds: data.excludedSentenceIds,
-          excludedWordIds: data.excludedWordIds,
+          timeline: data.timeline ?? emptyTimeline,
           transcriptlessSourceIds: data.transcriptlessSourceIds,
           orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
           excludedGroupIds: [],
           isDirty: false,
           lastSavedAt: data.savedAt,
-          // Project is ready if it has sentences (transcriptless videos have sentences but no words)
-          phase: data.sentences.length > 0 || data.segmentGroups.length > 0 ? "ready" : "idle",
+          // Project is ready if it has timeline entries
+          phase: (data.timeline?.entries.length ?? 0) > 0 || data.segmentGroups.length > 0 ? "ready" : "idle",
         });
 
         // Restore sources to the sources store
@@ -166,9 +167,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       words: state.words,
       sentences: state.sentences,
       segmentGroups: state.segmentGroups,
-      orderedSentenceIds: state.orderedSentenceIds,
-      excludedSentenceIds: state.excludedSentenceIds,
-      excludedWordIds: state.excludedWordIds,
+      timeline: state.timeline,
       transcriptlessSourceIds: state.transcriptlessSourceIds,
       savedAt: Date.now(),
     };
@@ -186,9 +185,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
         words: data.words,
         sentences: data.sentences,
         segmentGroups: data.segmentGroups,
-        orderedSentenceIds: data.orderedSentenceIds,
-        excludedSentenceIds: data.excludedSentenceIds,
-        excludedWordIds: data.excludedWordIds,
+        timeline: data.timeline ?? emptyTimeline,
         transcriptlessSourceIds: data.transcriptlessSourceIds,
         orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
         excludedGroupIds: [],
@@ -209,42 +206,59 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isDirty: true,
     }),
 
-  // Sentence actions
   setSentences: (sentences) =>
     set({
       sentences,
-      orderedSentenceIds: sentences.map((s) => s.sentenceId),
       isDirty: true,
     }),
 
-  setOrderedSentenceIds: (ids) => set({ orderedSentenceIds: ids, isDirty: true }),
+  // --- Timeline Actions ---
 
-  reorderSentences: (fromIndex, toIndex) =>
+  initializeTimeline: (sentences) =>
+    set({
+      timeline: createTimelineFromSentences(sentences),
+      isDirty: true,
+    }),
+
+  setTimeline: (timeline) => set({ timeline, isDirty: true }),
+
+  reorderEntry: (fromIndex, toIndex) =>
     set((state) => {
-      const newOrder = [...state.orderedSentenceIds];
-      const [removed] = newOrder.splice(fromIndex, 1);
-      newOrder.splice(toIndex, 0, removed);
-      return { orderedSentenceIds: newOrder, isDirty: true };
+      const newEntries = [...state.timeline.entries];
+      const [removed] = newEntries.splice(fromIndex, 1);
+      newEntries.splice(toIndex, 0, removed);
+      return {
+        timeline: { ...state.timeline, entries: newEntries },
+        isDirty: true,
+      };
     }),
 
-  excludeSentence: (id) =>
+  setEntryExcluded: (sentenceId, excluded) =>
     set((state) => ({
-      excludedSentenceIds: [...state.excludedSentenceIds, id],
+      timeline: {
+        ...state.timeline,
+        entries: state.timeline.entries.map((entry) =>
+          entry.sentenceId === sentenceId ? { ...entry, excluded } : entry
+        ),
+      },
       isDirty: true,
     })),
 
-  restoreSentence: (id) =>
+  toggleWordExcluded: (sentenceId, wordId) =>
     set((state) => ({
-      excludedSentenceIds: state.excludedSentenceIds.filter((sid) => sid !== id),
-      isDirty: true,
-    })),
-
-  // Word-level exclusion (toggle)
-  toggleWordExclusion: (wordId) =>
-    set((state) => ({
-      excludedWordIds: state.excludedWordIds.includes(wordId)
-        ? state.excludedWordIds.filter((id) => id !== wordId)
-        : [...state.excludedWordIds, wordId],
+      timeline: {
+        ...state.timeline,
+        entries: state.timeline.entries.map((entry) => {
+          if (entry.sentenceId !== sentenceId) return entry;
+          const excluded = entry.excludedWordIds.includes(wordId);
+          return {
+            ...entry,
+            excludedWordIds: excluded
+              ? entry.excludedWordIds.filter((id) => id !== wordId)
+              : [...entry.excludedWordIds, wordId],
+          };
+        }),
+      },
       isDirty: true,
     })),
 
@@ -304,15 +318,38 @@ export const useActiveGroups = () =>
 export const useGroupById = (id: string) =>
   useProjectStore((state) => state.segmentGroups.find((g) => g.groupId === id));
 
-// Sentence selector helpers
-export const useActiveSentences = () =>
-  useProjectStore((state) => {
-    const excluded = new Set(state.excludedSentenceIds);
-    return state.orderedSentenceIds
-      .filter((id) => !excluded.has(id))
-      .map((id) => state.sentences.find((s) => s.sentenceId === id)!)
-      .filter(Boolean);
-  });
+// --- Timeline Selectors ---
 
+/**
+ * Returns all non-excluded timeline entries in order.
+ */
+export const useActiveEntries = () =>
+  useProjectStore((state) =>
+    state.timeline.entries.filter((entry) => !entry.excluded)
+  );
+
+/**
+ * Returns a single timeline entry by sentence ID.
+ */
+export const useTimelineEntry = (sentenceId: string) =>
+  useProjectStore((state) =>
+    state.timeline.entries.find((entry) => entry.sentenceId === sentenceId)
+  );
+
+/**
+ * Returns the sentence object for a given ID.
+ */
 export const useSentenceById = (id: string) =>
   useProjectStore((state) => state.sentences.find((s) => s.sentenceId === id));
+
+/**
+ * Returns sentences ordered by timeline, including their exclusion state.
+ */
+export const useActiveSentences = () =>
+  useProjectStore((state) => {
+    const sentenceMap = new Map(state.sentences.map((s) => [s.sentenceId, s]));
+    return state.timeline.entries
+      .filter((entry) => !entry.excluded)
+      .map((entry) => sentenceMap.get(entry.sentenceId)!)
+      .filter(Boolean);
+  });

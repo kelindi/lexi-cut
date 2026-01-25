@@ -5,25 +5,22 @@ import { secondsToFrames } from "../stores/usePlaybackStore";
 import type { Segment } from "../types";
 
 /**
- * Computes timeline segments at the WORD level.
+ * Computes timeline segments at the WORD level using the Timeline structure.
  *
- * - Iterates through sentences in display order
- * - For each sentence, processes individual words
- * - Skips excluded sentences AND excluded words
+ * - Iterates through timeline entries in order
+ * - For each entry, processes individual words
+ * - Skips excluded entries AND excluded words (from entry.excludedWordIds)
  * - Merges adjacent words into continuous video segments
  * - Creates cuts when words are excluded or reordered
+ * - Supports videoOverride for future B-roll
  */
 export function useTimelineSegments(): Segment[] {
-  const orderedSentenceIds = useProjectStore((s) => s.orderedSentenceIds);
-  const excludedSentenceIds = useProjectStore((s) => s.excludedSentenceIds);
-  const excludedWordIds = useProjectStore((s) => s.excludedWordIds);
+  const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
   const words = useProjectStore((s) => s.words);
   const sources = useSourcesStore((s) => s.sources);
 
   return useMemo(() => {
-    const excludedSentences = new Set(excludedSentenceIds);
-    const excludedWords = new Set(excludedWordIds);
     const sourceMap = new Map(sources.map((s) => [s.id, s]));
     const sentenceMap = new Map(sentences.map((s) => [s.sentenceId, s]));
     const wordMap = new Map(words.map((w) => [w.id, w]));
@@ -38,38 +35,48 @@ export function useTimelineSegments(): Segment[] {
       text: string;
     }> = [];
 
-    for (const sentenceId of orderedSentenceIds) {
-      if (excludedSentences.has(sentenceId)) continue;
+    for (const entry of timeline.entries) {
+      // Skip excluded sentences
+      if (entry.excluded) continue;
 
-      const sentence = sentenceMap.get(sentenceId);
+      const sentence = sentenceMap.get(entry.sentenceId);
       if (!sentence) continue;
 
-      const source = sourceMap.get(sentence.sourceId);
+      // Determine source: use videoOverride if present, else sentence's source
+      const effectiveSourceId = entry.videoOverride?.sourceId ?? entry.sourceId;
+      const source = sourceMap.get(effectiveSourceId);
       if (!source) continue;
+
+      // Build excluded words set for this entry
+      const entryExcludedWords = new Set(entry.excludedWordIds);
 
       // Handle transcriptless sentences (no words) - use sentence times directly
       if (sentence.wordIds.length === 0) {
+        // For videoOverride, use override times
+        const start = entry.videoOverride?.start ?? sentence.startTime;
+        const end = entry.videoOverride?.end ?? sentence.endTime;
+
         includedWords.push({
-          sentenceId,
-          sourceId: sentence.sourceId,
+          sentenceId: entry.sentenceId,
+          sourceId: effectiveSourceId,
           sourcePath: source.path,
-          start: sentence.startTime,
-          end: sentence.endTime,
-          text: sentence.text,
+          start,
+          end,
+          text: entry.text,
         });
         continue;
       }
 
       for (const wordId of sentence.wordIds) {
         // Skip excluded words
-        if (excludedWords.has(wordId)) continue;
+        if (entryExcludedWords.has(wordId)) continue;
 
         const word = wordMap.get(wordId);
         if (!word) continue;
 
         includedWords.push({
-          sentenceId,
-          sourceId: sentence.sourceId,
+          sentenceId: entry.sentenceId,
+          sourceId: effectiveSourceId,
           sourcePath: source.path,
           start: word.start,
           end: word.end,
@@ -130,7 +137,7 @@ export function useTimelineSegments(): Segment[] {
     }
 
     return segments;
-  }, [orderedSentenceIds, excludedSentenceIds, excludedWordIds, sentences, words, sources]);
+  }, [timeline, sentences, words, sources]);
 }
 
 /**

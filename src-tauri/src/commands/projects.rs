@@ -82,6 +82,36 @@ pub struct SegmentGroup {
     pub avg_confidence: f64,
 }
 
+// --- Timeline Types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoOverride {
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    pub start: f64,
+    pub end: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineEntry {
+    #[serde(rename = "sentenceId")]
+    pub sentence_id: String,
+    pub text: String,
+    #[serde(rename = "sourceId")]
+    pub source_id: String,
+    pub excluded: bool,
+    #[serde(rename = "excludedWordIds")]
+    pub excluded_word_ids: Vec<String>,
+    #[serde(rename = "videoOverride", skip_serializing_if = "Option::is_none")]
+    pub video_override: Option<VideoOverride>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Timeline {
+    pub version: u32,
+    pub entries: Vec<TimelineEntry>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectData {
     pub id: String,
@@ -91,12 +121,16 @@ pub struct ProjectData {
     pub sentences: Vec<Sentence>,
     #[serde(rename = "segmentGroups")]
     pub segment_groups: Vec<SegmentGroup>,
-    #[serde(rename = "orderedSentenceIds")]
-    pub ordered_sentence_ids: Vec<String>,
-    #[serde(rename = "excludedSentenceIds")]
-    pub excluded_sentence_ids: Vec<String>,
-    #[serde(rename = "excludedWordIds")]
-    pub excluded_word_ids: Vec<String>,
+    // New timeline structure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeline: Option<Timeline>,
+    // Deprecated (kept for migration, removed on save)
+    #[serde(rename = "orderedSentenceIds", skip_serializing_if = "Option::is_none")]
+    pub ordered_sentence_ids: Option<Vec<String>>,
+    #[serde(rename = "excludedSentenceIds", skip_serializing_if = "Option::is_none")]
+    pub excluded_sentence_ids: Option<Vec<String>>,
+    #[serde(rename = "excludedWordIds", skip_serializing_if = "Option::is_none")]
+    pub excluded_word_ids: Option<Vec<String>>,
     #[serde(rename = "transcriptlessSourceIds")]
     pub transcriptless_source_ids: Vec<String>,
     #[serde(rename = "savedAt")]

@@ -18,7 +18,7 @@ import { useProjectStore } from "../../stores/useProjectStore";
 import { useSelectionStore } from "../../stores/useSelectionStore";
 import { usePlaybackStore, secondsToFrames, framesToSeconds } from "../../stores/usePlaybackStore";
 import { useTimelineSegments } from "../../hooks/useTimelineSegments";
-import type { Sentence } from "../../types";
+import type { Sentence, TimelineEntry } from "../../types";
 
 // Color palette for source files - matches Timeline.tsx
 const SOURCE_COLORS = [
@@ -31,16 +31,13 @@ const SOURCE_COLORS = [
 ];
 
 export function TranscriptPanel() {
-  // Project state
-  const orderedSentenceIds = useProjectStore((s) => s.orderedSentenceIds);
-  const excludedSentenceIds = useProjectStore((s) => s.excludedSentenceIds);
-  const excludedWordIds = useProjectStore((s) => s.excludedWordIds);
+  // Project state - use timeline instead of flat arrays
+  const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
   const words = useProjectStore((s) => s.words);
-  const reorderSentences = useProjectStore((s) => s.reorderSentences);
-  const excludeSentence = useProjectStore((s) => s.excludeSentence);
-  const restoreSentence = useProjectStore((s) => s.restoreSentence);
-  const toggleWordExclusion = useProjectStore((s) => s.toggleWordExclusion);
+  const reorderEntry = useProjectStore((s) => s.reorderEntry);
+  const setEntryExcluded = useProjectStore((s) => s.setEntryExcluded);
+  const toggleWordExcluded = useProjectStore((s) => s.toggleWordExcluded);
 
   // Playback state
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
@@ -60,23 +57,22 @@ export function TranscriptPanel() {
   const sentenceRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const lastActiveSentenceId = useRef<string | null>(null);
 
-  // Memoize excluded sets
-  const excludedSentenceSet = useMemo(
-    () => new Set(excludedSentenceIds),
-    [excludedSentenceIds]
+  // Build sentence map for lookups
+  const sentenceMap = useMemo(
+    () => new Map(sentences.map((s) => [s.sentenceId, s])),
+    [sentences]
   );
 
-  const excludedWordSet = useMemo(
-    () => new Set(excludedWordIds),
-    [excludedWordIds]
-  );
-
-  // All sentences in display order
-  const allSentences = useMemo((): Sentence[] => {
-    return orderedSentenceIds
-      .map((id) => sentences.find((s) => s.sentenceId === id)!)
-      .filter(Boolean);
-  }, [orderedSentenceIds, sentences]);
+  // All entries with their corresponding sentences
+  const entriesWithSentences = useMemo((): Array<{ entry: TimelineEntry; sentence: Sentence }> => {
+    return timeline.entries
+      .map((entry) => {
+        const sentence = sentenceMap.get(entry.sentenceId);
+        if (!sentence) return null;
+        return { entry, sentence };
+      })
+      .filter((item): item is { entry: TimelineEntry; sentence: Sentence } => item !== null);
+  }, [timeline.entries, sentenceMap]);
 
   // Build source → color mapping (consistent with Timeline)
   const sourceColors = useMemo(() => {
@@ -95,13 +91,15 @@ export function TranscriptPanel() {
   const movedSentenceIds = useMemo(() => {
     const moved = new Set<string>();
 
-    // Get non-excluded sentences in current order
-    const currentOrder = orderedSentenceIds.filter(id => !excludedSentenceSet.has(id));
+    // Get non-excluded entries in current order
+    const currentOrder = timeline.entries
+      .filter((e) => !e.excluded)
+      .map((e) => e.sentenceId);
 
     // Group sentences by source
     const sentencesBySource = new Map<string, string[]>();
     for (const id of currentOrder) {
-      const sentence = sentences.find(s => s.sentenceId === id);
+      const sentence = sentenceMap.get(id);
       if (!sentence) continue;
       if (!sentencesBySource.has(sentence.sourceId)) {
         sentencesBySource.set(sentence.sourceId, []);
@@ -113,8 +111,8 @@ export function TranscriptPanel() {
     for (const [, sourceIds] of sentencesBySource) {
       // Create chronological order for this source based on startTime
       const chronologicalOrder = [...sourceIds].sort((a, b) => {
-        const sentA = sentences.find(s => s.sentenceId === a);
-        const sentB = sentences.find(s => s.sentenceId === b);
+        const sentA = sentenceMap.get(a);
+        const sentB = sentenceMap.get(b);
         if (!sentA || !sentB) return 0;
         return sentA.startTime - sentB.startTime;
       });
@@ -128,14 +126,14 @@ export function TranscriptPanel() {
     }
 
     return moved;
-  }, [orderedSentenceIds, excludedSentenceSet, sentences]);
+  }, [timeline.entries, sentenceMap]);
 
   // Only non-excluded sentence IDs for sortable context
   const sortableIds = useMemo(
-    () => allSentences
-      .filter((s) => !excludedSentenceSet.has(s.sentenceId))
-      .map((s) => s.sentenceId),
-    [allSentences, excludedSentenceSet]
+    () => entriesWithSentences
+      .filter(({ entry }) => !entry.excluded)
+      .map(({ entry }) => entry.sentenceId),
+    [entriesWithSentences]
   );
 
   // Compute active playback state (which sentence/word is playing)
@@ -149,7 +147,7 @@ export function TranscriptPanel() {
         // Find which sentence is active
         let activeSentenceId = seg.sentenceIds[0];
         for (const sentenceId of seg.sentenceIds) {
-          const sentence = sentences.find((s) => s.sentenceId === sentenceId);
+          const sentence = sentenceMap.get(sentenceId);
           if (sentence && sourceTime >= sentence.startTime && sourceTime < sentence.endTime) {
             activeSentenceId = sentenceId;
             break;
@@ -160,7 +158,7 @@ export function TranscriptPanel() {
       }
     }
     return null;
-  }, [currentFrame, timelineSegments, sentences]);
+  }, [currentFrame, timelineSegments, sentenceMap]);
 
   // Scroll active sentence into view when playback moves to a new sentence
   useEffect(() => {
@@ -220,13 +218,13 @@ export function TranscriptPanel() {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
-    const oldIndex = orderedSentenceIds.indexOf(active.id as string);
-    const newIndex = orderedSentenceIds.indexOf(over.id as string);
+    const oldIndex = timeline.entries.findIndex((e) => e.sentenceId === active.id);
+    const newIndex = timeline.entries.findIndex((e) => e.sentenceId === over.id);
 
     if (oldIndex !== -1 && newIndex !== -1) {
-      reorderSentences(oldIndex, newIndex);
+      reorderEntry(oldIndex, newIndex);
     }
-  }, [orderedSentenceIds, reorderSentences]);
+  }, [timeline.entries, reorderEntry]);
 
   // Handle sentence selection and seek
   const handleSentenceSelect = useCallback((sentence: Sentence) => {
@@ -234,24 +232,29 @@ export function TranscriptPanel() {
 
     // Calculate frame position for this sentence
     let framePosition = 0;
-    for (const id of orderedSentenceIds) {
-      if (excludedSentenceSet.has(id)) continue;
-      if (id === sentence.sentenceId) break;
-      const s = sentences.find((sent) => sent.sentenceId === id);
+    for (const entry of timeline.entries) {
+      if (entry.excluded) continue;
+      if (entry.sentenceId === sentence.sentenceId) break;
+      const s = sentenceMap.get(entry.sentenceId);
       if (s) {
         framePosition += secondsToFrames(s.endTime - s.startTime);
       }
     }
     seekToFrame(framePosition);
-  }, [orderedSentenceIds, excludedSentenceSet, sentences, selectSentence, seekToFrame]);
+  }, [timeline.entries, sentenceMap, selectSentence, seekToFrame]);
 
-  // Handle sentence deletion
+  // Handle sentence deletion (exclude)
   const handleSentenceDelete = useCallback((sentenceId: string) => {
-    excludeSentence(sentenceId);
+    setEntryExcluded(sentenceId, true);
     if (selectedSentenceId === sentenceId) {
       selectSentence(null);
     }
-  }, [excludeSentence, selectedSentenceId, selectSentence]);
+  }, [setEntryExcluded, selectedSentenceId, selectSentence]);
+
+  // Handle sentence restore (include)
+  const handleSentenceRestore = useCallback((sentenceId: string) => {
+    setEntryExcluded(sentenceId, false);
+  }, [setEntryExcluded]);
 
   // Handle word selection (immediate feedback)
   const handleSelectWord = useCallback((wordId: string) => {
@@ -271,6 +274,11 @@ export function TranscriptPanel() {
     seekToFrame(targetFrame, true);
   }, [timelineSegments, seekToFrame]);
 
+  // Handle word toggle - now needs sentenceId
+  const handleToggleWord = useCallback((sentenceId: string, wordId: string) => {
+    toggleWordExcluded(sentenceId, wordId);
+  }, [toggleWordExcluded]);
+
   // Register sentence ref for scroll tracking
   const registerSentenceRef = useCallback((id: string, el: HTMLDivElement | null) => {
     if (el) {
@@ -280,7 +288,7 @@ export function TranscriptPanel() {
     }
   }, []);
 
-  if (allSentences.length === 0) {
+  if (entriesWithSentences.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-neutral-500">
         No transcript sentences
@@ -300,10 +308,12 @@ export function TranscriptPanel() {
           strategy={verticalListSortingStrategy}
         >
           <div className="flex flex-col gap-0.5">
-            {allSentences.map((sentence) => {
-              const isExcluded = excludedSentenceSet.has(sentence.sentenceId);
+            {entriesWithSentences.map(({ entry, sentence }) => {
+              const isExcluded = entry.excluded;
               const isMoved = movedSentenceIds.has(sentence.sentenceId);
               const sourceColor = sourceColors.get(sentence.sourceId) || SOURCE_COLORS[0];
+              // Build excluded word set for this entry
+              const excludedWordSet = new Set(entry.excludedWordIds);
               return (
                 <div
                   key={sentence.sentenceId}
@@ -324,8 +334,8 @@ export function TranscriptPanel() {
                     }
                     onSelect={() => handleSentenceSelect(sentence)}
                     onDelete={() => handleSentenceDelete(sentence.sentenceId)}
-                    onRestore={() => restoreSentence(sentence.sentenceId)}
-                    onToggleWord={toggleWordExclusion}
+                    onRestore={() => handleSentenceRestore(sentence.sentenceId)}
+                    onToggleWord={(wordId) => handleToggleWord(sentence.sentenceId, wordId)}
                     onSelectWord={handleSelectWord}
                     onSeekToWord={handleSeekToWord}
                   />
