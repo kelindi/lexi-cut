@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, FolderOpen, FilmStrip } from "@phosphor-icons/react";
+import { Plus, FolderOpen, FilmStrip, X } from "@phosphor-icons/react";
 import { useProjectStore } from "../stores/useProjectStore";
 import { loadProjects, saveProjects } from "../api/projects";
 import type { ProjectMeta } from "../types";
@@ -8,6 +8,7 @@ export function ProjectsPage() {
   const [name, setName] = useState("");
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [isCreating, setIsCreating] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<ProjectMeta | null>(null);
   const openProject = useProjectStore((s) => s.openProject);
 
   useEffect(() => {
@@ -38,6 +39,17 @@ export function ProjectsPage() {
     } else if (e.key === "Escape") {
       setIsCreating(false);
       setName("");
+    }
+  };
+
+  const handleDelete = async (project: ProjectMeta) => {
+    const updated = projects.filter((p) => p.id !== project.id);
+    try {
+      await saveProjects(updated);
+      setProjects(updated);
+      setDeleteConfirm(null);
+    } catch (err) {
+      console.error("Failed to delete project:", err);
     }
   };
 
@@ -121,37 +133,52 @@ export function ProjectsPage() {
 
             {/* Existing Projects */}
             {projects.map((project) => (
-              <button
+              <div
                 key={project.id}
-                onClick={() => openProject(project.id, project.name)}
-                className="group flex aspect-[4/3] flex-col overflow-hidden rounded-lg border border-white/10 bg-[#111] text-left transition-all hover:border-white/20 hover:bg-[#151515]"
+                className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#0d0d0d] transition-all hover:border-white/20"
               >
-                {/* Thumbnail area */}
-                <div className="flex flex-1 items-center justify-center">
+                {/* Clickable area */}
+                <button
+                  onClick={() => openProject(project.id, project.name)}
+                  className="absolute inset-0 text-left"
+                >
+                  {/* Full cell background */}
                   {project.thumbnail ? (
                     <img
                       src={project.thumbnail}
                       alt={project.name}
-                      className="h-full w-full object-cover"
+                      className="absolute inset-0 h-full w-full object-cover"
                     />
                   ) : (
-                    <FolderOpen
-                      size={32}
-                      weight="duotone"
-                      className="text-white/20 transition-colors group-hover:text-white/30"
-                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <FolderOpen
+                        size={48}
+                        weight="duotone"
+                        className="text-white/10 transition-colors group-hover:text-white/20"
+                      />
+                    </div>
                   )}
-                </div>
-                {/* Info */}
-                <div className="border-t border-white/5 px-3 py-2">
-                  <span className="block truncate text-sm font-medium text-white">
-                    {project.name}
-                  </span>
-                  <span className="block text-xs text-white/40">
-                    {formatDate(project.createdAt)}
-                  </span>
-                </div>
-              </button>
+                  {/* Info overlay at bottom */}
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/50 to-transparent px-3 pb-2 pt-6">
+                    <span className="block truncate text-sm font-medium text-white">
+                      {project.name}
+                    </span>
+                    <span className="block text-xs text-white/50">
+                      {formatDate(project.createdAt)}
+                    </span>
+                  </div>
+                </button>
+                {/* Delete button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDeleteConfirm(project);
+                  }}
+                  className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/50 opacity-0 transition-all hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
+                >
+                  <X size={14} weight="bold" />
+                </button>
+              </div>
             ))}
           </div>
 
@@ -170,6 +197,33 @@ export function ProjectsPage() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="mx-4 w-full max-w-sm rounded-lg border border-white/10 bg-[#111] p-6">
+            <h3 className="text-lg font-semibold text-white">Delete Project</h3>
+            <p className="mt-2 text-sm text-white/60">
+              Are you sure you want to delete "{deleteConfirm.name}"? This
+              action cannot be undone.
+            </p>
+            <div className="mt-6 flex gap-3">
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDelete(deleteConfirm)}
+                className="flex-1 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

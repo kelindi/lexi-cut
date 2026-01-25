@@ -12,6 +12,10 @@ interface ProjectState {
   projectId: string | null;
   projectName: string | null;
 
+  // Dirty state tracking
+  isDirty: boolean;
+  lastSavedAt: number | null;
+
   // Raw data
   words: Word[];
   segmentGroups: SegmentGroup[];
@@ -40,6 +44,8 @@ interface ProjectState {
   createProject: (name: string) => void;
   openProject: (id: string, name: string) => void;
   closeProject: () => void;
+  markDirty: () => void;
+  markClean: () => void;
 
   // Actions
   setWords: (words: Word[]) => void;
@@ -67,6 +73,8 @@ interface ProjectState {
 const initialState = {
   projectId: null as string | null,
   projectName: null as string | null,
+  isDirty: false,
+  lastSavedAt: null as number | null,
   segments: [],
   words: [],
   segmentGroups: [],
@@ -101,13 +109,17 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   closeProject: () => set(initialState),
 
-  setSegments: (segments) => set({ segments }),
-  setWords: (words) => set({ words }),
+  markDirty: () => set({ isDirty: true }),
+  markClean: () => set({ isDirty: false, lastSavedAt: Date.now() }),
+
+  setSegments: (segments) => set({ segments, isDirty: true }),
+  setWords: (words) => set({ words, isDirty: true }),
 
   setSegmentGroups: (groups) =>
     set({
       segmentGroups: groups,
       orderedGroupIds: groups.map((g) => g.groupId),
+      isDirty: true,
     }),
 
   // Sentence actions
@@ -115,26 +127,29 @@ export const useProjectStore = create<ProjectState>((set) => ({
     set({
       sentences,
       orderedSentenceIds: sentences.map((s) => s.sentenceId),
+      isDirty: true,
     }),
 
-  setOrderedSentenceIds: (ids) => set({ orderedSentenceIds: ids }),
+  setOrderedSentenceIds: (ids) => set({ orderedSentenceIds: ids, isDirty: true }),
 
   reorderSentences: (fromIndex, toIndex) =>
     set((state) => {
       const newOrder = [...state.orderedSentenceIds];
       const [removed] = newOrder.splice(fromIndex, 1);
       newOrder.splice(toIndex, 0, removed);
-      return { orderedSentenceIds: newOrder };
+      return { orderedSentenceIds: newOrder, isDirty: true };
     }),
 
   excludeSentence: (id) =>
     set((state) => ({
       excludedSentenceIds: [...state.excludedSentenceIds, id],
+      isDirty: true,
     })),
 
   restoreSentence: (id) =>
     set((state) => ({
       excludedSentenceIds: state.excludedSentenceIds.filter((sid) => sid !== id),
+      isDirty: true,
     })),
 
   // Word-level exclusion (toggle)
@@ -143,22 +158,25 @@ export const useProjectStore = create<ProjectState>((set) => ({
       excludedWordIds: state.excludedWordIds.includes(wordId)
         ? state.excludedWordIds.filter((id) => id !== wordId)
         : [...state.excludedWordIds, wordId],
+      isDirty: true,
     })),
 
   // Transcriptless tracking
-  setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds }),
+  setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds, isDirty: true }),
 
   // Legacy group actions
-  setOrderedGroupIds: (ids) => set({ orderedGroupIds: ids }),
+  setOrderedGroupIds: (ids) => set({ orderedGroupIds: ids, isDirty: true }),
 
   excludeGroup: (id) =>
     set((state) => ({
       excludedGroupIds: [...state.excludedGroupIds, id],
+      isDirty: true,
     })),
 
   restoreGroup: (id) =>
     set((state) => ({
       excludedGroupIds: state.excludedGroupIds.filter((gid) => gid !== id),
+      isDirty: true,
     })),
 
   reorderGroups: (fromIndex, toIndex) =>
@@ -166,7 +184,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       const newOrder = [...state.orderedGroupIds];
       const [removed] = newOrder.splice(fromIndex, 1);
       newOrder.splice(toIndex, 0, removed);
-      return { orderedGroupIds: newOrder };
+      return { orderedGroupIds: newOrder, isDirty: true };
     }),
 
   updateGroupText: (id, text) =>
@@ -174,6 +192,7 @@ export const useProjectStore = create<ProjectState>((set) => ({
       segmentGroups: state.segmentGroups.map((g) =>
         g.groupId === id ? { ...g, text } : g
       ),
+      isDirty: true,
     })),
 
   setPhase: (phase) => set({ phase }),
