@@ -261,6 +261,8 @@ export function VideoPanel() {
             clickToPlay={false}
             loop={false}
             spaceKeyToPlayOrPause={true}
+            bufferStateDelayInMilliseconds={500}
+            hideControlsWhenPointerDoesntMove={false}
             renderLoading={() => (
               <div style={{
                 position: "absolute",

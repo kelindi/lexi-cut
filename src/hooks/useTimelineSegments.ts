@@ -5,14 +5,13 @@ import { secondsToFrames } from "../stores/usePlaybackStore";
 import type { Segment } from "../types";
 
 /**
- * Computes timeline segments at the WORD level using the Timeline structure.
+ * Computes timeline segments with MINIMAL breaks for smooth playback.
  *
- * - Iterates through timeline entries in order
- * - For each entry, processes individual words
- * - Skips excluded entries AND excluded words (from entry.excludedWordIds)
- * - Merges adjacent words into continuous video segments
- * - Creates cuts when words are excluded or reordered
- * - Supports videoOverride for future B-roll
+ * Philosophy: Only create segment boundaries when absolutely necessary.
+ * - Unedited content from same source = ONE segment
+ * - Only break when: word deleted, sentence reordered, or source changes
+ *
+ * This minimizes Remotion <Sequence> elements and avoids seeking jitter.
  */
 export function useTimelineSegments(): Segment[] {
   const timeline = useProjectStore((s) => s.timeline);
@@ -25,115 +24,158 @@ export function useTimelineSegments(): Segment[] {
     const sentenceMap = new Map(sentences.map((s) => [s.sentenceId, s]));
     const wordMap = new Map(words.map((w) => [w.id, w]));
 
-    // First pass: collect all included words with their timing
-    const includedWords: Array<{
+    // First pass: Build time ranges from timeline entries
+    // Use sentence-level timing when possible, only go word-level when words are excluded
+    const timeRanges: Array<{
       sentenceId: string;
       sourceId: string;
       sourcePath: string;
       start: number;
       end: number;
       text: string;
+      hasWordDeletions: boolean; // True if this range came from a sentence with deleted words
     }> = [];
 
     for (const entry of timeline.entries) {
-      // Skip excluded sentences
+      // Skip excluded sentences entirely
       if (entry.excluded) continue;
 
       const sentence = sentenceMap.get(entry.sentenceId);
       if (!sentence) continue;
 
-      // Determine source: use videoOverride if present, else sentence's source
       const effectiveSourceId = entry.videoOverride?.sourceId ?? entry.sourceId;
       const source = sourceMap.get(effectiveSourceId);
       if (!source) continue;
 
-      // Build excluded words set for this entry
-      const entryExcludedWords = new Set(entry.excludedWordIds);
+      const excludedWordIds = new Set(entry.excludedWordIds);
+      const hasExcludedWords = excludedWordIds.size > 0;
 
-      // Handle transcriptless sentences (no words) - use sentence times directly
-      if (sentence.wordIds.length === 0) {
-        // For videoOverride, use override times
+      // No words excluded OR no word data → use sentence timing directly (ONE range)
+      if (!hasExcludedWords || sentence.wordIds.length === 0) {
         const start = entry.videoOverride?.start ?? sentence.startTime;
         const end = entry.videoOverride?.end ?? sentence.endTime;
 
-        includedWords.push({
+        timeRanges.push({
           sentenceId: entry.sentenceId,
           sourceId: effectiveSourceId,
           sourcePath: source.path,
           start,
           end,
           text: entry.text,
+          hasWordDeletions: false,
         });
         continue;
       }
 
-      for (const wordId of sentence.wordIds) {
-        // Skip excluded words
-        if (entryExcludedWords.has(wordId)) continue;
+      // Words are excluded - build ranges from consecutive included words
+      let rangeStart: number | null = null;
+      let rangeEnd: number | null = null;
+      let rangeText: string[] = [];
 
+      for (const wordId of sentence.wordIds) {
         const word = wordMap.get(wordId);
         if (!word) continue;
 
-        includedWords.push({
+        if (excludedWordIds.has(wordId)) {
+          // Word excluded - close current range if open
+          if (rangeStart !== null && rangeEnd !== null) {
+            timeRanges.push({
+              sentenceId: entry.sentenceId,
+              sourceId: effectiveSourceId,
+              sourcePath: source.path,
+              start: rangeStart,
+              end: rangeEnd,
+              text: rangeText.join(" "),
+              hasWordDeletions: true, // Mark that this came from a sentence with deletions
+            });
+            rangeStart = null;
+            rangeEnd = null;
+            rangeText = [];
+          }
+        } else {
+          // Word included - extend or start range
+          if (rangeStart === null) {
+            rangeStart = word.start;
+          }
+          rangeEnd = word.end;
+          rangeText.push(word.word);
+        }
+      }
+
+      // Close final range
+      if (rangeStart !== null && rangeEnd !== null) {
+        timeRanges.push({
           sentenceId: entry.sentenceId,
           sourceId: effectiveSourceId,
           sourcePath: source.path,
-          start: word.start,
-          end: word.end,
-          text: word.word,
+          start: rangeStart,
+          end: rangeEnd,
+          text: rangeText.join(" "),
+          hasWordDeletions: true, // Mark that this came from a sentence with deletions
         });
       }
     }
 
-    // Second pass: merge consecutive words from same source
-    // Only merge if words are truly adjacent (no excluded words between them)
+    // Second pass: Merge adjacent ranges that are in forward order in source time
+    // Only create segment breaks when there's an actual discontinuity (reorder, deletion, source change)
     const segments: Segment[] = [];
-    const ADJACENCY_TOLERANCE = 0.1; // 100ms
     let segmentIndex = 0;
+    let lastRangeHadDeletions = false;
 
-    for (let i = 0; i < includedWords.length; i++) {
-      const word = includedWords[i];
+    for (const range of timeRanges) {
       const lastSeg = segments[segments.length - 1];
-      const prevWord = i > 0 ? includedWords[i - 1] : null;
+      const gap = lastSeg ? range.start - lastSeg.sourceEnd : 0;
+
+      // Determine merge threshold based on whether there are word deletions
+      // - For ranges from sentences with deletions: only merge if truly adjacent (<100ms)
+      //   This ensures deleted word gaps create segment breaks
+      // - For clean ranges: allow natural speech pauses (up to 10s) to play through
+      const hasAnyDeletions = range.hasWordDeletions || lastRangeHadDeletions;
+      const mergeThreshold = hasAnyDeletions ? 0.1 : 10.0;
 
       // Can merge if:
-      // 1. Same source as previous segment
-      // 2. This word immediately follows the previous word (in timeline order)
-      // 3. The words are temporally adjacent in the source
+      // 1. Same source
+      // 2. This range starts AT or AFTER where the last segment ends (forward in source time)
+      // 3. Gap is within threshold (tight for deletions, loose for natural pauses)
       const canMerge =
         lastSeg &&
-        prevWord &&
-        lastSeg.sourceId === word.sourceId &&
-        Math.abs(word.start - prevWord.end) < ADJACENCY_TOLERANCE;
+        lastSeg.sourceId === range.sourceId &&
+        range.start >= lastSeg.sourceEnd - 0.05 && // Starts after (allow tiny overlap)
+        gap < mergeThreshold;
 
       if (canMerge) {
-        lastSeg.sourceEnd = word.end;
+        // Extend existing segment
+        lastSeg.sourceEnd = range.end;
         lastSeg.durationFrames = secondsToFrames(lastSeg.sourceEnd - lastSeg.sourceStart);
-        lastSeg.text += " " + word.text;
-        if (!lastSeg.sentenceIds.includes(word.sentenceId)) {
-          lastSeg.sentenceIds.push(word.sentenceId);
+        lastSeg.text += " " + range.text;
+        if (!lastSeg.sentenceIds.includes(range.sentenceId)) {
+          lastSeg.sentenceIds.push(range.sentenceId);
         }
       } else {
+        // Create new segment (discontinuity in source time)
         const currentFrame =
           segments.length > 0
             ? segments[segments.length - 1].startFrame +
               segments[segments.length - 1].durationFrames
             : 0;
 
-        const durationFrames = secondsToFrames(word.end - word.start);
+        const durationFrames = secondsToFrames(range.end - range.start);
 
         segments.push({
           id: `segment-${segmentIndex++}`,
-          sentenceIds: [word.sentenceId],
-          sourceId: word.sourceId,
-          sourcePath: word.sourcePath,
-          sourceStart: word.start,
-          sourceEnd: word.end,
+          sentenceIds: [range.sentenceId],
+          sourceId: range.sourceId,
+          sourcePath: range.sourcePath,
+          sourceStart: range.start,
+          sourceEnd: range.end,
           startFrame: currentFrame,
           durationFrames,
-          text: word.text,
+          text: range.text,
         });
       }
+
+      // Track for next iteration
+      lastRangeHadDeletions = range.hasWordDeletions;
     }
 
     return segments;
