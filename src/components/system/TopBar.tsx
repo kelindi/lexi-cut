@@ -3,6 +3,7 @@ import { CaretLeft, FloppyDisk, Circle, Export } from "@phosphor-icons/react";
 import { useProjectStore } from "../../stores/useProjectStore";
 import { useSourcesStore } from "../../stores/useSourcesStore";
 import { useExport } from "../../hooks/useExport";
+import { ExportDialog } from "../export";
 
 export function TopBar() {
   const projectName = useProjectStore((s) => s.projectName);
@@ -11,8 +12,9 @@ export function TopBar() {
   const saveProject = useProjectStore((s) => s.saveProject);
   const sources = useSourcesStore((s) => s.sources);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const { exportVideo, isExporting, canExport } = useExport();
+  const { isExporting, canExport } = useExport();
 
   const handleSave = async () => {
     if (!isDirty || isSaving) return;
@@ -73,7 +75,7 @@ export function TopBar() {
           </button>
           {canExport && (
             <button
-              onClick={exportVideo}
+              onClick={() => setShowExportDialog(true)}
               disabled={isExporting}
               className="flex items-center gap-2 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -83,6 +85,9 @@ export function TopBar() {
           )}
         </div>
       </header>
+
+      {/* Export Dialog */}
+      <ExportDialog open={showExportDialog} onOpenChange={setShowExportDialog} />
 
       {/* Unsaved Changes Confirmation Modal */}
       {showExitConfirm && (
