@@ -168,32 +168,28 @@ export function EditPage() {
 
   return (
     <main className="h-[calc(100vh-3rem)] bg-[#0a0a0a]">
-      <PanelGroup orientation="vertical" className="h-full">
-        {/* Main content area */}
-        <Panel defaultSize={70} minSize={30}>
-          <PanelGroup orientation="horizontal" className="h-full">
-            {/* Transcript panel (left) */}
-            <Panel defaultSize={65} minSize={20}>
-              <div className="h-full overflow-hidden">
-                <TranscriptPanel />
-              </div>
-            </Panel>
-            <ResizeHandle orientation="horizontal" />
-
-            {/* Video panel (right) */}
-            <Panel defaultSize={35} minSize={20}>
-              <div className="h-full overflow-hidden">
-                <VideoPanel />
-              </div>
-            </Panel>
-          </PanelGroup>
+      <PanelGroup orientation="horizontal" className="h-full">
+        {/* Transcript panel (left) */}
+        <Panel defaultSize={30} minSize={15}>
+          <div className="h-full overflow-hidden">
+            <TranscriptPanel />
+          </div>
         </Panel>
+        <ResizeHandle orientation="horizontal" />
 
-        <ResizeHandle orientation="vertical" />
+        {/* Video panel (center) */}
+        <Panel defaultSize={40} minSize={20}>
+          <div className="h-full overflow-hidden">
+            <VideoPanel />
+          </div>
+        </Panel>
+        <ResizeHandle orientation="horizontal" />
 
-        {/* Conversation panel (bottom) */}
-        <Panel defaultSize={20} minSize={10}>
-          <ConversationPanel />
+        {/* Conversation panel (right) */}
+        <Panel defaultSize={30} minSize={15}>
+          <div className="h-full overflow-hidden">
+            <ConversationPanel />
+          </div>
         </Panel>
       </PanelGroup>
     </main>
