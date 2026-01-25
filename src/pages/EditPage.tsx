@@ -7,6 +7,7 @@ import { ConversationPanel } from "../components/edit/ConversationPanel";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { runPipeline } from "../api/processingPipeline";
+import { executeAgenticAssemblyCut } from "../api/agenticEdit";
 
 function ResizeHandle({ orientation = "horizontal" }: { orientation?: "horizontal" | "vertical" }) {
   const isHorizontal = orientation === "horizontal";
@@ -79,6 +80,23 @@ export function EditPage() {
       setTranscriptlessSourceIds(result.transcriptlessSourceIds);
       // Initialize the timeline from fresh sentences
       initializeTimeline(result.sentences);
+
+      // Run agentic assembly cut (graceful fallback to chronological order)
+      setPhase("assembling");
+      try {
+        await executeAgenticAssemblyCut({
+          onToolStart: (name, input) => {
+            console.log(`[assemblyCut] Tool: ${name}`, input);
+          },
+          onToolComplete: (name, result) => {
+            console.log(`[assemblyCut] ${name}: ${result}`);
+          },
+        });
+      } catch (e) {
+        console.warn("[assemblyCut] Failed, using chronological order:", e);
+        // Timeline stays in chronological order - graceful fallback
+      }
+
       setPhase("ready");
       setProgress(null);
     } catch (e) {
