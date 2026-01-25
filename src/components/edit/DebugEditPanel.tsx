@@ -2,24 +2,24 @@ import { useState } from "react";
 import { useProjectStore } from "../../stores/useProjectStore";
 
 /**
- * Debug panel for testing agent word deletion/restoration by indices.
+ * Debug panel for testing agent word deletion/restoration by IDs.
  * This is a temporary component for validating the store actions work correctly.
  *
  * Usage:
  * 1. Select a sentence ID from the dropdown
- * 2. Enter comma-separated word indices (0-indexed)
+ * 2. Click on words to add their IDs to the input
  * 3. Click Delete or Restore to test the actions
  */
 export function DebugEditPanel() {
   const [selectedSentenceId, setSelectedSentenceId] = useState<string>("");
-  const [indicesInput, setIndicesInput] = useState<string>("");
+  const [wordIdsInput, setWordIdsInput] = useState<string>("");
   const [lastResult, setLastResult] = useState<string>("");
 
   const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
   const words = useProjectStore((s) => s.words);
-  const deleteWordsByIndices = useProjectStore((s) => s.deleteWordsByIndices);
-  const restoreWordsByIndices = useProjectStore((s) => s.restoreWordsByIndices);
+  const deleteWordsByIds = useProjectStore((s) => s.deleteWordsByIds);
+  const restoreWordsByIds = useProjectStore((s) => s.restoreWordsByIds);
 
   // Get the selected sentence and its words
   const selectedSentence = sentences.find((s) => s.sentenceId === selectedSentenceId);
@@ -33,11 +33,11 @@ export function DebugEditPanel() {
       })
     : [];
 
-  const parseIndices = (): number[] => {
-    return indicesInput
+  const parseWordIds = (): string[] => {
+    return wordIdsInput
       .split(",")
-      .map((s) => parseInt(s.trim(), 10))
-      .filter((n) => !isNaN(n));
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
   };
 
   const handleDelete = () => {
@@ -45,13 +45,13 @@ export function DebugEditPanel() {
       setLastResult("Error: No sentence selected");
       return;
     }
-    const indices = parseIndices();
-    if (indices.length === 0) {
-      setLastResult("Error: No valid indices provided");
+    const ids = parseWordIds();
+    if (ids.length === 0) {
+      setLastResult("Error: No word IDs provided");
       return;
     }
-    deleteWordsByIndices(selectedSentenceId, indices);
-    setLastResult(`Deleted words at indices: [${indices.join(", ")}]`);
+    deleteWordsByIds(selectedSentenceId, ids);
+    setLastResult(`Deleted words: [${ids.join(", ")}]`);
   };
 
   const handleRestore = () => {
@@ -59,13 +59,13 @@ export function DebugEditPanel() {
       setLastResult("Error: No sentence selected");
       return;
     }
-    const indices = parseIndices();
-    if (indices.length === 0) {
-      setLastResult("Error: No valid indices provided");
+    const ids = parseWordIds();
+    if (ids.length === 0) {
+      setLastResult("Error: No word IDs provided");
       return;
     }
-    restoreWordsByIndices(selectedSentenceId, indices);
-    setLastResult(`Restored words at indices: [${indices.join(", ")}]`);
+    restoreWordsByIds(selectedSentenceId, ids);
+    setLastResult(`Restored words: [${ids.join(", ")}]`);
   };
 
   return (
@@ -104,18 +104,19 @@ export function DebugEditPanel() {
       {selectedSentence && (
         <div className="space-y-1">
           <label className="text-xs text-neutral-400">
-            Words (click index to add)
+            Words (click to add ID)
           </label>
           <div className="flex flex-wrap gap-1 p-2 bg-neutral-800 rounded text-xs font-mono">
-            {sentenceWords.map(({ idx, word, isExcluded }) => (
+            {sentenceWords.map(({ idx, id, word, isExcluded }) => (
               <button
-                key={idx}
+                key={id}
                 onClick={() => {
-                  const current = parseIndices();
-                  if (!current.includes(idx)) {
-                    setIndicesInput([...current, idx].join(", "));
+                  const current = parseWordIds();
+                  if (!current.includes(id)) {
+                    setWordIdsInput([...current, id].join(", "));
                   }
                 }}
+                title={id}
                 className={`px-1.5 py-0.5 rounded transition-colors ${
                   isExcluded
                     ? "bg-red-900/50 text-red-300 line-through"
@@ -129,16 +130,16 @@ export function DebugEditPanel() {
         </div>
       )}
 
-      {/* Indices input */}
+      {/* Word IDs input */}
       <div className="space-y-1">
         <label className="text-xs text-neutral-400">
-          Word Indices (comma-separated, 0-indexed)
+          Word IDs (comma-separated)
         </label>
         <input
           type="text"
-          value={indicesInput}
-          onChange={(e) => setIndicesInput(e.target.value)}
-          placeholder="e.g., 0, 2, 5"
+          value={wordIdsInput}
+          onChange={(e) => setWordIdsInput(e.target.value)}
+          placeholder="e.g., word-src1-0, word-src1-2"
           className="w-full bg-neutral-800 border border-neutral-600 rounded px-2 py-1.5 text-sm text-neutral-200 font-mono placeholder:text-neutral-500"
         />
       </div>

@@ -60,9 +60,9 @@ interface ProjectState {
   reorderEntry: (fromIndex: number, toIndex: number) => void;
   setEntryExcluded: (sentenceId: string, excluded: boolean) => void;
   toggleWordExcluded: (sentenceId: string, wordId: string) => void;
-  // Agent-only: batch word operations by index (used by agentic editing loop)
-  deleteWordsByIndices: (sentenceId: string, wordIndices: number[]) => void;
-  restoreWordsByIndices: (sentenceId: string, wordIndices: number[]) => void;
+  // Agent-only: batch word operations by ID (used by agentic editing loop)
+  deleteWordsByIds: (sentenceId: string, wordIds: string[]) => void;
+  restoreWordsByIds: (sentenceId: string, wordIds: string[]) => void;
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
@@ -265,15 +265,15 @@ export const useProjectStore = create<ProjectState>((set) => ({
       isDirty: true,
     })),
 
-  // Agent-only: delete words by 0-indexed positions
-  deleteWordsByIndices: (sentenceId, wordIndices) =>
+  // Agent-only: delete words by ID
+  deleteWordsByIds: (sentenceId: string, wordIds: string[]) =>
     set((state) => {
       const sentence = state.sentences.find((s) => s.sentenceId === sentenceId);
       if (!sentence) return state;
 
-      const wordIdsToExclude = wordIndices
-        .filter((idx) => idx >= 0 && idx < sentence.wordIds.length)
-        .map((idx) => sentence.wordIds[idx]);
+      // Only exclude word IDs that actually belong to this sentence
+      const validWordIds = new Set(sentence.wordIds);
+      const wordIdsToExclude = wordIds.filter((id) => validWordIds.has(id));
 
       return {
         timeline: {
@@ -289,17 +289,10 @@ export const useProjectStore = create<ProjectState>((set) => ({
       };
     }),
 
-  // Agent-only: restore words by 0-indexed positions
-  restoreWordsByIndices: (sentenceId, wordIndices) =>
+  // Agent-only: restore words by ID
+  restoreWordsByIds: (sentenceId: string, wordIds: string[]) =>
     set((state) => {
-      const sentence = state.sentences.find((s) => s.sentenceId === sentenceId);
-      if (!sentence) return state;
-
-      const wordIdsToRestore = new Set(
-        wordIndices
-          .filter((idx) => idx >= 0 && idx < sentence.wordIds.length)
-          .map((idx) => sentence.wordIds[idx])
-      );
+      const wordIdsToRestore = new Set(wordIds);
 
       return {
         timeline: {
