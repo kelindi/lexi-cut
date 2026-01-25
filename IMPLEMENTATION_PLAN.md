@@ -1,255 +1,204 @@
-# Implementation Plan: Agentic Assembly Cut with Graceful Fallback
+# B-Roll Classification Implementation Plan
 
-## Goal
-Move the assembly cut logic from a one-shot Claude JSON response to use the existing agentic tool-use pattern. This allows graceful fallback when Claude is unavailable - the timeline simply stays in chronological order.
+## Overview
+Add B-roll classification to identify and mark content that isn't primary narrative (no speech, irrelevant to narrative, or too short < 1 second).
 
-## Current Architecture
+## Data Structure
 
-### Pipeline Flow (src/api/processingPipeline.ts)
-1. **Phase 1**: Transcribe videos → `Word[]`
-2. **Phase 2**: Group words → `SegmentGroup[]`
-3. **Phase 2.5**: Describe with Gemini (optional) → `SourceDescription[]`
-4. **Phase 3**: Assembly cut via Claude → `orderedGroupIds` ← **REMOVE THIS**
-5. Build `Sentence[]` from words
-6. Return to EditPage
-
-### EditPage Flow (src/pages/EditPage.tsx:48-99)
-1. Calls `runPipeline(sources, ...)`
-2. Populates store: `setWords`, `setSentences`, etc.
-3. `initializeTimeline(result.sentences)` ← Timeline now exists in store
-4. `setPhase("ready")`
-
-### Agentic Edit (src/api/agenticEdit.ts)
-- Uses Claude tool-use loop with streaming
-- Tools defined: `delete_words`, `restore_words`, `delete_sentences`, `restore_sentences`, `reorder_sentences`
-- Calls `getAgentContext()` to build timeline state for Claude
-- Executes tools via `useAgenticStore` functions
-
-### Agentic Store (src/stores/useAgenticStore.ts)
-- Wraps `useProjectStore` mutations with history tracking
-- Exports: `deleteWords`, `restoreWords`, `deleteSentences`, `restoreSentences`, `reorderSentences`
-- `getAgentContext()` returns formatted timeline state for Claude
-
-## Changes Required
-
-### 1. Simplify Pipeline Phase 3 (src/api/processingPipeline.ts)
-
-**Location**: Lines 249-297
-
-**Current code** (lines 266-293):
+### New Types (src/types/index.ts)
 ```typescript
-try {
-  const result = await requestAssemblyCut({
-    segmentGroups: allGroups,
-    sourceNames,
-  });
-  // ... use Claude's order
-} catch (error) {
-  console.error("[pipeline] Phase 3: Assembly cut FAILED:", error);
-  orderedGroupIds = allGroups.map((g) => g.groupId);
+export type BrollReason = 'no-speech' | 'irrelevant' | 'too-short';
+
+export interface BrollClassification {
+  sentenceId: string;
+  isBroll: boolean;
+  reason: BrollReason;
+  confidence: number;  // 0-1, how confident we are this is B-roll
 }
 ```
 
-**Change to**:
+### Store Addition (src/stores/useProjectStore.ts)
+- Add `brollClassifications: Map<string, BrollClassification>` to state
+- Add `setBrollClassifications(classifications: BrollClassification[])` action
+- Add `clearBrollClassifications()` action
+
+### API Layer (src/api/brollClassification.ts)
+Simple API for adding/querying B-roll status:
 ```typescript
-// Always use chronological order - agentic assembly cut runs after timeline init
-console.log(`[pipeline] Phase 3: Using chronological order (agentic assembly runs post-init)`);
-orderedGroupIds = allGroups.map((g) => g.groupId);
+export function classifyAsBroll(sentenceId: string, reason: BrollReason, confidence?: number): void
+export function getBrollStatus(sentenceId: string): BrollClassification | null
+export function isBroll(sentenceId: string): boolean
 ```
-
-Remove the entire try/catch block and the `requestAssemblyCut` call. The import for `requestAssemblyCut` can also be removed from line 6.
-
-### 2. Create executeAgenticAssemblyCut (src/api/agenticEdit.ts)
-
-Add a new exported function that reuses the existing infrastructure:
-
-```typescript
-const ASSEMBLY_CUT_SYSTEM_PROMPT = `You are an AI video editor assistant performing an initial assembly cut. Analyze the timeline and make it production-ready.
-
-Your tasks:
-1. Identify retakes - sentences that are duplicated or very similar content within a short time span. Keep the best take (usually more complete, higher confidence) and delete the others using delete_sentences.
-2. Remove false starts - very short incomplete sentences that are followed by a complete version.
-3. Reorder for narrative flow - if the content would make more sense in a different order, use reorder_sentences.
-4. Remove off-topic tangents that don't fit the main narrative.
-
-Guidelines:
-- Be conservative - only delete clear duplicates/retakes, not unique content
-- Look at Context hints (from visual descriptions) to understand what's happening
-- Prefer keeping later takes over earlier ones (speaker usually improves)
-- Work systematically, making multiple tool calls as needed
-- After making changes, provide a brief summary of what you did
-
-The timeline is currently in chronological order. Refine it for the best viewing experience.`;
-
-export async function executeAgenticAssemblyCut(
-  callbacks: AgenticEditCallbacks = {}
-): Promise<AgenticEditResult> {
-  console.log(`[agenticEdit] Starting assembly cut...`);
-
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.warn("[agenticEdit] No API key, skipping assembly cut");
-    return {
-      success: true,
-      message: "Skipped assembly cut (no API key)",
-      toolCallCount: 0,
-      commandIds: [],
-    };
-  }
-
-  const context = getAgentContext();
-
-  // Check if there's enough content to warrant assembly cut
-  const state = useProjectStore.getState();
-  if (state.timeline.entries.length < 2) {
-    console.log("[agenticEdit] Only 1 sentence, skipping assembly cut");
-    return {
-      success: true,
-      message: "Skipped assembly cut (single sentence)",
-      toolCallCount: 0,
-      commandIds: [],
-    };
-  }
-
-  const userMessage = `Current timeline state:
-
-${context}
 
 ---
 
-Please perform an assembly cut on this timeline. Identify and remove retakes/duplicates, and reorder for better narrative flow if needed.`;
+## Stage 1: Data Structure & API
+**Goal**: Add BrollClassification type and store support
+**Status**: Complete
 
-  // Reuse the same streaming API call logic but with ASSEMBLY_CUT_SYSTEM_PROMPT
-  // ... (same loop as executeAgenticEdit but with different system prompt)
-}
+### Tasks
+- [ ] 1.1 Add `BrollReason` and `BrollClassification` types to `src/types/index.ts`
+- [ ] 1.2 Add `brollClassifications` Map to `useProjectStore` state (and initialState)
+- [ ] 1.3 Add `setBrollClassifications` and `clearBrollClassifications` actions
+- [ ] 1.4 Create `src/api/brollClassification.ts` with helper functions
+- [ ] 1.5 Update `ProjectData` interface in `src/api/projects.ts` for persistence
+- [ ] 1.6 Update `saveProjectData` and `loadProjectData` to handle classifications
+
+**Checkpoint 1**: Types compile, store has new fields, API file exists
+
+---
+
+## Stage 2: Transcription-Stage Detection
+**Goal**: Mark sentences as B-roll at transcription stage when no speech detected
+**Status**: Complete
+
+### Tasks
+- [ ] 2.1 Update `PipelineResult` interface to include `brollClassifications: BrollClassification[]`
+- [ ] 2.2 In `runPipeline`, detect transcriptless sources and create BrollClassifications
+- [ ] 2.3 In EditPage, store B-roll classifications after pipeline completes
+
+**Checkpoint 2**: Import a video with no speech → it gets marked as B-roll in store
+
+### Detection Rule
+- Sources with no transcribed words -> B-roll (reason: `'no-speech'`, confidence: 1.0)
+
+---
+
+## Stage 3: Assembly Cut Detection
+**Goal**: Claude marks sentences as B-roll during assembly cut if irrelevant or too short
+**Status**: Complete
+
+### Tasks
+- [ ] 3.1 Add `mark_broll` tool definition to TOOLS array in `agenticEdit.ts`
+- [ ] 3.2 Update `ASSEMBLY_CUT_SYSTEM_PROMPT` with B-roll instructions
+- [ ] 3.3 Implement `executeTool` case for `mark_broll`
+
+**Checkpoint 3**: Run assembly cut → Claude uses mark_broll tool → classifications appear in store
+
+### Tool Definition
+1. Add new tool `mark_broll` to TOOLS array in `agenticEdit.ts`:
+   ```typescript
+   {
+     name: "mark_broll",
+     description: "Mark sentences as B-roll footage. Use for: 1) Very short clips under 1 second, 2) Content not relevant to the main narrative (environmental shots, transitions, etc.)",
+     input_schema: {
+       type: "object",
+       properties: {
+         sentence_ids: {
+           type: "array",
+           items: { type: "string" },
+           description: "Array of sentence IDs to mark as B-roll"
+         },
+         reason: {
+           type: "string",
+           enum: ["irrelevant", "too-short"],
+           description: "Why this is B-roll: 'too-short' for < 1 second clips, 'irrelevant' for non-narrative content"
+         }
+       },
+       required: ["sentence_ids", "reason"]
+     }
+   }
+   ```
+
+2. Update `ASSEMBLY_CUT_SYSTEM_PROMPT` to add B-roll instructions:
+   ```
+   5. Mark B-roll - Identify and mark as B-roll using mark_broll:
+      - Sentences shorter than 1 second (reason: 'too-short')
+      - Content that shows environment, transitions, or isn't relevant to the narrative (reason: 'irrelevant')
+      - B-roll stays in timeline but displays differently to the user
+   ```
+
+3. Implement `executeTool` case for `mark_broll`:
+   ```typescript
+   case "mark_broll": {
+     const sentenceIds = input.sentence_ids as string[];
+     const reason = input.reason as BrollReason;
+     for (const id of sentenceIds) {
+       classifyAsBroll(id, reason, reason === 'too-short' ? 0.9 : 0.8);
+     }
+     return {
+       success: true,
+       result: `Marked ${sentenceIds.length} sentence(s) as B-roll (${reason})`,
+     };
+   }
+   ```
+
+### Detection Rules
+- Duration < 1 second -> B-roll (reason: `'too-short'`)
+- Content not relevant to narrative -> B-roll (reason: `'irrelevant'`)
+
+---
+
+## Stage 4: UI Changes
+**Goal**: Render B-roll sentences with visual distinction showing description instead of text
+**Status**: Complete
+
+### Tasks
+- [ ] 4.1 Create `useBrollClassification` selector in `useProjectStore.ts`
+- [ ] 4.2 Update `TranscriptPanel.tsx` to pass B-roll status to SentenceItem
+- [ ] 4.3 Update `SentenceItem.tsx` to render B-roll with distinct styling
+
+**Checkpoint 4**: B-roll sentences display "B-Roll" text with italic/muted styling in UI
+
+### Implementation Details
+1. Create selector in `useProjectStore.ts`:
+   ```typescript
+   export const useBrollClassification = (sentenceId: string) =>
+     useProjectStore((state) => state.brollClassifications.get(sentenceId));
+   ```
+
+2. In `TranscriptPanel.tsx`:
+   - Get `brollClassifications` from store
+   - Pass `isBroll` boolean to SentenceItem
+   - Pass description (from existing `sentenceDescriptions`) for B-roll display
+
+3. In `SentenceItem.tsx`:
+   - Add `isBroll?: boolean` prop
+   - When `isBroll` is true:
+     - Display `"B-Roll"` or `"B-Roll - {description}"` instead of transcript text
+     - Add distinct visual styling:
+       - Slightly muted/different background
+       - Italic text style
+       - Optional badge or icon indicator
+     - Keep timestamp and source color bar
+     - Sentence remains included (not excluded), just styled differently
+
+### UI Display Logic
+```tsx
+// In SentenceItem render
+{isBroll ? (
+  <div className="text-[14px] leading-relaxed font-mono font-light italic text-neutral-400">
+    {description ? `B-Roll - ${description}` : "B-Roll"}
+  </div>
+) : (
+  // existing word rendering...
+)}
 ```
 
-**Implementation note**: Extract the common streaming loop into a shared helper, or duplicate with the different system prompt. The existing `streamingApiCall` already takes `messages` - you'd need to also parameterize the system prompt.
+---
 
-### 3. Update EditPage (src/pages/EditPage.tsx)
+## File Changes Summary
 
-**Location**: Lines 75-86
-
-**Current code**:
-```typescript
-setWords(result.words);
-setSegmentGroups(result.segmentGroups);
-setOrderedGroupIds(result.orderedGroupIds);
-setSentences(result.sentences);
-setTranscriptlessSourceIds(result.transcriptlessSourceIds);
-initializeTimeline(result.sentences);
-setPhase("ready");
-setProgress(null);
-```
-
-**Change to**:
-```typescript
-setWords(result.words);
-setSegmentGroups(result.segmentGroups);
-setOrderedGroupIds(result.orderedGroupIds);
-setSentences(result.sentences);
-setTranscriptlessSourceIds(result.transcriptlessSourceIds);
-initializeTimeline(result.sentences);
-
-// Run agentic assembly cut (graceful fallback to chronological order)
-setPhase("assembling");
-try {
-  await executeAgenticAssemblyCut({
-    onToolStart: (name, input) => {
-      console.log(`[assemblyCut] Tool: ${name}`, input);
-    },
-    onToolComplete: (name, result) => {
-      console.log(`[assemblyCut] ${name}: ${result}`);
-    },
-  });
-} catch (e) {
-  console.warn("[assemblyCut] Failed, using chronological order:", e);
-  // Timeline stays in chronological order - graceful fallback
-}
-
-setPhase("ready");
-setProgress(null);
-```
-
-Add import at top:
-```typescript
-import { executeAgenticAssemblyCut } from "../api/agenticEdit";
-```
-
-### 4. Refactor streamingApiCall (src/api/agenticEdit.ts)
-
-The current `streamingApiCall` uses a module-level `SYSTEM_PROMPT`. To support both regular edits and assembly cuts, either:
-
-**Option A**: Add system prompt parameter
-```typescript
-async function streamingApiCall(
-  apiKey: string,
-  messages: Message[],
-  callbacks: AgenticEditCallbacks,
-  systemPrompt: string = SYSTEM_PROMPT  // default to existing
-): Promise<{ content: ContentBlock[]; stopReason: string }>
-```
-
-**Option B**: Create a more generic `runAgenticLoop` helper that both functions use.
-
-## Files to Modify
-
-1. **src/api/processingPipeline.ts**
-   - Remove `requestAssemblyCut` import (line 6)
-   - Simplify Phase 3 (lines 249-297) to always use chronological order
-
-2. **src/api/agenticEdit.ts**
-   - Add `ASSEMBLY_CUT_SYSTEM_PROMPT` constant
-   - Parameterize `streamingApiCall` to accept system prompt
-   - Add `executeAgenticAssemblyCut` function
-
-3. **src/pages/EditPage.tsx**
-   - Import `executeAgenticAssemblyCut`
-   - Call it after `initializeTimeline` with try/catch for graceful fallback
-
-4. **src/api/assemblyCut.ts** (optional cleanup)
-   - Can be deleted entirely once migration is complete
-   - Or keep `groupWordsForAssembly` if still used (check imports)
-
-## Testing the Change
-
-1. **Happy path**: With valid `VITE_ANTHROPIC_API_KEY`
-   - Pipeline completes, timeline initialized
-   - Agentic assembly cut runs, identifies duplicates, reorders
-   - Final timeline is refined
-
-2. **No API key**: Remove `VITE_ANTHROPIC_API_KEY` from env
-   - Pipeline completes, timeline initialized
-   - Assembly cut skips gracefully
-   - Timeline stays in chronological order
-
-3. **Claude unavailable**: Mock API failure (e.g., wrong key)
-   - Pipeline completes, timeline initialized
-   - Assembly cut fails, caught by try/catch
-   - Timeline stays in chronological order
-   - User sees ready state, can manually edit
-
-4. **Single sentence**: Only one sentence in timeline
-   - Assembly cut skips (nothing to reorder)
-   - No wasted API call
-
-## Key Files Reference
-
-| File | Purpose |
+| File | Changes |
 |------|---------|
-| `src/api/processingPipeline.ts` | Pipeline orchestration, Phase 3 to simplify |
-| `src/api/agenticEdit.ts` | Agentic loop, add assembly cut function here |
-| `src/api/assemblyCut.ts` | Old one-shot approach, can be removed |
-| `src/stores/useAgenticStore.ts` | Tool implementations (already complete) |
-| `src/pages/EditPage.tsx` | Integration point after timeline init |
+| `src/types/index.ts` | Add `BrollReason`, `BrollClassification` types |
+| `src/stores/useProjectStore.ts` | Add `brollClassifications` Map, actions, selector |
+| `src/api/brollClassification.ts` | **New file** - helper API for classification |
+| `src/api/processingPipeline.ts` | Add no-speech B-roll detection, update PipelineResult |
+| `src/api/agenticEdit.ts` | Add `mark_broll` tool, update system prompt |
+| `src/api/projects.ts` | Update ProjectData type and save/load for persistence |
+| `src/pages/EditPage.tsx` | Store B-roll classifications after pipeline |
+| `src/components/edit/TranscriptPanel.tsx` | Pass B-roll status to SentenceItem |
+| `src/components/edit/SentenceItem.tsx` | Render B-roll with distinct styling |
 
-## Status
-- [x] Simplify pipeline Phase 3
-- [x] Add executeAgenticAssemblyCut to agenticEdit.ts
-- [x] Parameterize streamingApiCall for system prompt
-- [x] Update EditPage to call assembly cut
-- [x] Clean up assemblyCut.ts (kept groupWordsForAssembly, removed old API code)
-- [x] Clean up unused types (DuplicateGroup, AssemblyCutRequest, AssemblyCutResult)
-- [ ] Test happy path
-- [ ] Test graceful fallback (no key)
-- [ ] Test graceful fallback (API error)
+---
+
+## Testing Checklist
+- [ ] Transcriptless sources are marked as B-roll (`no-speech`) on import
+- [ ] Claude marks short (<1s) sentences as B-roll (`too-short`) during assembly cut
+- [ ] Claude marks irrelevant content as B-roll (`irrelevant`) during assembly cut
+- [ ] B-roll sentences display "B-Roll" or "B-Roll - {description}" in UI
+- [ ] B-roll sentences are visually distinct (italic, muted) but not excluded
+- [ ] B-roll classifications persist on save/load
+- [ ] B-roll sentences can still be manually excluded/restored
+- [ ] B-roll sentences still play in video composition

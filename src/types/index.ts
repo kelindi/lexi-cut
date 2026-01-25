@@ -176,3 +176,14 @@ export interface ProcessingProgress {
   total: number;
   message?: string;
 }
+
+// --- B-Roll Classification ---
+
+export type BrollReason = 'no-speech' | 'irrelevant' | 'too-short';
+
+export interface BrollClassification {
+  sentenceId: string;
+  isBroll: boolean;
+  reason: BrollReason;
+  confidence: number;  // 0-1, how confident we are this is B-roll
+}

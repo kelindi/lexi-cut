@@ -40,6 +40,7 @@ export function TranscriptPanel() {
   const reorderEntry = useProjectStore((s) => s.reorderEntry);
   const setEntryExcluded = useProjectStore((s) => s.setEntryExcluded);
   const toggleWordExcluded = useProjectStore((s) => s.toggleWordExcluded);
+  const brollClassifications = useProjectStore((s) => s.brollClassifications);
 
   // Sources state (for descriptions)
   const sources = useSourcesStore((s) => s.sources);
@@ -338,6 +339,8 @@ export function TranscriptPanel() {
               const excludedWordSet = new Set(entry.excludedWordIds);
               // Get description for this sentence (if any)
               const description = sentenceDescriptions.get(sentence.sentenceId);
+              // Get B-roll classification for this sentence (if any)
+              const brollClassification = brollClassifications.get(sentence.sentenceId);
               return (
                 <div
                   key={sentence.sentenceId}
@@ -352,6 +355,7 @@ export function TranscriptPanel() {
                     isMoved={isMoved}
                     sourceColor={sourceColor}
                     description={description}
+                    brollClassification={brollClassification}
                     currentSourceTime={
                       !isExcluded && activePlayback?.sentenceId === sentence.sentenceId
                         ? activePlayback.sourceTime

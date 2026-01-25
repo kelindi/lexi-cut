@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Word, SegmentGroup, Sentence, SourceDescription, ProcessingProgress } from "../types";
+import type { Source, Word, SegmentGroup, Sentence, SourceDescription, ProcessingProgress, BrollClassification } from "../types";
 import { transcribeFile, mapTranscriptToWords } from "./transcribe";
 import { groupWords } from "./segmentGrouping";
 import { describeSourceWithFrames } from "./describeSegments";
@@ -53,6 +53,7 @@ export interface PipelineResult {
   orderedGroupIds: string[];
   sentences: Sentence[];
   transcriptlessSourceIds: string[];
+  brollClassifications: BrollClassification[];
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
@@ -265,11 +266,14 @@ export async function runPipeline(
 
   // Create sentences for transcriptless sources (videos with no audio)
   // These have no words but still need to be in the timeline
+  // Also mark them as B-roll (no speech detected)
+  const brollClassifications: BrollClassification[] = [];
   let transcriptlessSentenceIdx = sentences.length;
   for (const { sourceId, duration } of sourcesWithNoSpeech) {
     const source = sources.find((s) => s.id === sourceId);
+    const sentenceId = `sentence-${transcriptlessSentenceIdx++}`;
     const transcriptlessSentence: Sentence = {
-      sentenceId: `sentence-${transcriptlessSentenceIdx++}`,
+      sentenceId,
       sourceId,
       wordIds: [], // No words for transcriptless sources
       text: source?.name ?? "Video",
@@ -277,7 +281,16 @@ export async function runPipeline(
       endTime: duration,
     };
     sentences.push(transcriptlessSentence);
-    console.log(`[pipeline] Created sentence for transcriptless source "${source?.name}" (0s-${duration}s)`);
+
+    // Mark as B-roll since no speech was detected
+    brollClassifications.push({
+      sentenceId,
+      isBroll: true,
+      reason: 'no-speech',
+      confidence: 1.0,
+    });
+
+    console.log(`[pipeline] Created sentence for transcriptless source "${source?.name}" (0s-${duration}s), marked as B-roll`);
   }
 
   const transcriptlessSourceIds = sourcesWithNoSpeech.map((s) => s.sourceId);
@@ -294,5 +307,6 @@ export async function runPipeline(
     orderedGroupIds,
     sentences,
     transcriptlessSourceIds,
+    brollClassifications,
   };
 }

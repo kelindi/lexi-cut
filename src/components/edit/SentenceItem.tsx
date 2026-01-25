@@ -3,7 +3,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { DotsSixVertical, X, ArrowCounterClockwise } from "@phosphor-icons/react";
 import { WordSpan } from "./WordSpan";
-import type { Word, Sentence } from "../../types";
+import type { Word, Sentence, BrollClassification } from "../../types";
 import { formatTime } from "../../stores/usePlaybackStore";
 
 interface WordData {
@@ -22,6 +22,7 @@ interface SentenceItemProps {
   isMoved: boolean;
   sourceColor: string;
   description?: string;
+  brollClassification?: BrollClassification;
   currentSourceTime: number | null;
   onSelect: () => void;
   onDelete: () => void;
@@ -40,6 +41,7 @@ export function SentenceItem({
   isMoved,
   sourceColor,
   description,
+  brollClassification,
   currentSourceTime,
   onSelect,
   onDelete,
@@ -48,6 +50,7 @@ export function SentenceItem({
   onSelectWord,
   onSeekToWord,
 }: SentenceItemProps) {
+  const isBroll = brollClassification?.isBroll ?? false;
   const {
     attributes,
     listeners,
@@ -165,16 +168,20 @@ export function SentenceItem({
         flex-1 min-w-0
         ${isExcluded ? "text-neutral-500 line-through decoration-neutral-600" : ""}
       `}>
-        {/* Screenplay-style description */}
-        {description && !isExcluded && (
+        {/* Screenplay-style description (only show if not B-roll, since B-roll shows its own description) */}
+        {description && !isExcluded && !isBroll && (
           <div className="text-[12px] text-neutral-400 italic font-sans mb-1 select-none">
             [{description}]
           </div>
         )}
-        {/* Sentence text */}
+        {/* Sentence text or B-roll indicator */}
         <div className="text-[14px] leading-relaxed font-mono font-light">
           {isExcluded ? (
             <span className="cursor-pointer">{sentence.text}</span>
+          ) : isBroll ? (
+            <span className="italic text-neutral-400">
+              {description ? `B-Roll — ${description}` : "B-Roll"}
+            </span>
           ) : (
             words.map((w, idx) => (
               <WordSpan

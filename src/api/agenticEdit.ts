@@ -15,6 +15,8 @@ import {
   reorderSentences,
 } from "../stores/useAgenticStore";
 import { useProjectStore } from "../stores/useProjectStore";
+import { classifyAsBroll } from "./brollClassification";
+import type { BrollReason } from "../types";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-20250514";
@@ -110,6 +112,28 @@ const TOOLS = [
         },
       },
       required: ["sentence_ids"],
+    },
+  },
+  {
+    name: "mark_broll",
+    description:
+      "Mark sentences as B-roll footage. Use for: 1) Very short clips under 1 second, 2) Content not relevant to the main narrative (environmental shots, transitions, etc.). B-roll stays in timeline but displays differently to help the editor.",
+    input_schema: {
+      type: "object",
+      properties: {
+        sentence_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Array of sentence IDs to mark as B-roll",
+        },
+        reason: {
+          type: "string",
+          enum: ["irrelevant", "too-short"],
+          description:
+            "Why this is B-roll: 'too-short' for < 1 second clips, 'irrelevant' for non-narrative content",
+        },
+      },
+      required: ["sentence_ids", "reason"],
     },
   },
 ];
@@ -231,6 +255,18 @@ function executeTool(
           success: true,
           result: `Reordered ${sentenceIds.length} sentence(s)`,
           commandId,
+        };
+      }
+      case "mark_broll": {
+        const sentenceIds = input.sentence_ids as string[];
+        const reason = input.reason as BrollReason;
+        const confidence = reason === "too-short" ? 0.9 : 0.8;
+        for (const id of sentenceIds) {
+          classifyAsBroll(id, reason, confidence);
+        }
+        return {
+          success: true,
+          result: `Marked ${sentenceIds.length} sentence(s) as B-roll (${reason})`,
         };
       }
       default:
@@ -517,12 +553,17 @@ You have access to the following tools:
 - delete_sentences: Remove entire sentences from the timeline
 - restore_sentences: Bring back previously deleted sentences
 - reorder_sentences: Change the order of sentences in the timeline
+- mark_broll: Mark sentences as B-roll footage
 
 Your tasks:
 1. Identify retakes - sentences that are duplicated or very similar content within a short time span. Keep the best take (usually more complete, higher confidence) and delete the others using delete_sentences.
 2. Remove false starts - very short incomplete sentences that are followed by a complete version.
 3. Reorder for narrative flow - if the content would make more sense in a different order, use reorder_sentences.
 4. Remove off-topic tangents that don't fit the main narrative.
+5. Mark B-roll - Identify and mark as B-roll using mark_broll:
+   - Sentences shorter than 1 second (reason: 'too-short')
+   - Content that shows environment, transitions, or isn't relevant to the narrative (reason: 'irrelevant')
+   - B-roll stays in timeline but displays differently to help the editor identify it
 
 Guidelines:
 - Be conservative - only delete clear duplicates/retakes, not unique content
