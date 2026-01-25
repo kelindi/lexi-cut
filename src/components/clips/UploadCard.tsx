@@ -9,12 +9,12 @@ export function UploadCard({ onClick, error }: UploadCardProps) {
   return (
     <button
       onClick={onClick}
-      className="group flex aspect-[4/3] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#111] transition-all hover:border-white/20 hover:bg-[#151515]"
+      className="btn-press card-hover group flex aspect-[4/3] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#111]"
     >
       <Plus
         size={32}
         weight="light"
-        className="text-white/30 transition-colors group-hover:text-white/50"
+        className="text-white/30 transition-all duration-300 group-hover:rotate-90 group-hover:text-white/50"
       />
       <span className="mt-2 text-xs text-white/30 transition-colors group-hover:text-white/50">
         Add Clips

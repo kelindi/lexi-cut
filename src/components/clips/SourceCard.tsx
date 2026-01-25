@@ -58,8 +58,8 @@ export function SourceCard({ source, onRemove }: SourceCardProps) {
 
       <Dialog.Root open={infoOpen} onOpenChange={setInfoOpen}>
         <Dialog.Portal>
-          <Dialog.Backdrop className="fixed inset-0 bg-black/60" />
-          <Dialog.Popup className="fixed top-1/2 left-1/2 w-[400px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-lg bg-[#1a1a1a] p-4">
+          <Dialog.Backdrop className="animate-fade-in fixed inset-0 bg-black/60" />
+          <Dialog.Popup className="animate-scale-in fixed top-1/2 left-1/2 w-[400px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-white/10 bg-[#1a1a1a] p-4">
             <Dialog.Title className="mb-4 text-sm font-medium text-white">
               {source.name}
             </Dialog.Title>
@@ -77,7 +77,7 @@ export function SourceCard({ source, onRemove }: SourceCardProps) {
                 </div>
               </div>
             </div>
-            <Dialog.Close className="mt-4 w-full rounded bg-[#333] py-1.5 text-xs text-white hover:bg-[#444]">
+            <Dialog.Close className="btn-press mt-4 w-full rounded bg-[#333] py-1.5 text-xs text-white hover:bg-[#444] transition-colors">
               Close
             </Dialog.Close>
           </Dialog.Popup>

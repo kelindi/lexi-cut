@@ -76,10 +76,10 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
 
   return (
     <main className="flex min-h-[calc(100vh-3rem)] flex-col bg-[#0a0a0a]">
-      <div className="flex-1 px-8 py-10">
+      <div className="flex-1 px-8 py-6">
         <div className="mx-auto max-w-4xl">
           {/* Section Title */}
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-medium uppercase tracking-wider text-white/40">
               Clips
             </h2>
@@ -91,7 +91,7 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
           </div>
 
           {/* Clips Grid */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="stagger-grid grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {/* Upload Card */}
             <UploadCard onClick={handleSelectFiles} />
 
@@ -99,14 +99,14 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
             {sources.map((source) => (
               <div
                 key={source.id}
-                className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#0d0d0d] transition-all hover:border-white/20"
+                className="card-hover group relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#0d0d0d]"
               >
                 {/* Thumbnail */}
                 {source.thumbnail ? (
                   <img
                     src={source.thumbnail}
                     alt={source.name}
-                    className="absolute inset-0 h-full w-full object-cover"
+                    className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                   />
                 ) : (
                   <div className="absolute inset-0 flex items-center justify-center">
@@ -133,17 +133,34 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
                 {/* Delete button */}
                 <button
                   onClick={() => removeSource(source.id)}
-                  className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/50 opacity-0 transition-all hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
+                  className="delete-glow absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/50 opacity-0 transition-all hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
                 >
                   <X size={14} weight="bold" />
                 </button>
               </div>
             ))}
+
+            {/* Next Card - inline after clips */}
+            {hasClips && (
+              <button
+                onClick={onNext}
+                className="btn-press card-hover group flex aspect-[4/3] flex-col items-center justify-center rounded-lg border border-white/20 bg-[#1a1a1a]"
+              >
+                <ArrowRight
+                  size={32}
+                  weight="bold"
+                  className="text-white/50 transition-transform duration-300 group-hover:translate-x-1 group-hover:text-white/70"
+                />
+                <span className="mt-2 text-sm font-medium text-white/50 transition-colors group-hover:text-white/70">
+                  Next
+                </span>
+              </button>
+            )}
           </div>
 
           {/* Empty State */}
           {!hasClips && (
-            <div className="mt-16 flex flex-col items-center justify-center text-center">
+            <div className="mt-10 flex flex-col items-center justify-center text-center">
               <VideoCamera
                 size={48}
                 weight="duotone"
@@ -157,18 +174,6 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
         </div>
       </div>
 
-      {/* Next button */}
-      {hasClips && (
-        <div className="sticky bottom-0 flex justify-center border-t border-white/5 bg-[#0a0a0a] p-4">
-          <button
-            onClick={onNext}
-            className="flex items-center gap-2 rounded-lg bg-white px-8 py-3 font-medium text-black transition-colors hover:bg-neutral-200"
-          >
-            Next
-            <ArrowRight size={20} weight="bold" />
-          </button>
-        </div>
-      )}
     </main>
   );
 }

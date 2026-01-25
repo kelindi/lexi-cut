@@ -229,7 +229,7 @@ export function ConversationPanel() {
               key={s.label}
               onClick={() => handleSubmit(s.prompt)}
               disabled={isProcessing}
-              className="px-2 py-1 text-xs text-neutral-400 bg-neutral-800 hover:bg-neutral-700 hover:text-neutral-200 rounded-full transition-colors disabled:opacity-50"
+              className="btn-press px-2 py-1 text-xs text-white/60 bg-transparent hover:bg-white/5 hover:text-white/80 border border-white/10 rounded transition-all hover:scale-105 disabled:opacity-50"
             >
               {s.label}
             </button>
@@ -250,12 +250,12 @@ export function ConversationPanel() {
             }}
             placeholder={isProcessing ? "Processing..." : "Tell me how to edit..."}
             disabled={isProcessing}
-            className="w-full bg-neutral-800 text-neutral-100 placeholder:text-neutral-500 px-3 py-2 pr-10 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-neutral-600 disabled:opacity-50"
+            className="w-full bg-[#1a1a1a] border border-white/10 text-white placeholder:text-white/30 px-3 py-2 pr-10 rounded text-sm focus:outline-none focus:border-white/20 transition-colors disabled:opacity-50"
           />
           <button
             onClick={() => handleSubmit(inputValue)}
             disabled={isProcessing || !inputValue.trim()}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-neutral-400 hover:text-neutral-200 disabled:opacity-30"
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-white/40 hover:text-white/70 disabled:opacity-30"
           >
             <ArrowClockwise size={16} className={isProcessing ? "animate-spin" : ""} />
           </button>
@@ -278,7 +278,7 @@ function MessageRow({ message, activeActions, onRemove, onUndoAction, onUndoAll 
   const hasActions = activeActions.length > 0;
 
   return (
-    <div className="group px-3 py-2 hover:bg-neutral-800/50">
+    <div className="group px-3 py-2 hover:bg-neutral-800/50 animate-fade-in-up transition-colors">
       {/* Message header and content */}
       <div className="flex items-start gap-2">
         <div className="shrink-0 mt-0.5">
@@ -332,7 +332,7 @@ function MessageRow({ message, activeActions, onRemove, onUndoAction, onUndoAll 
             {/* Undo All button */}
             <button
               onClick={onUndoAll}
-              className="px-2 py-1 text-xs text-neutral-400 bg-neutral-800 hover:bg-red-900/50 hover:text-red-400 rounded transition-colors"
+              className="btn-press px-2 py-1 text-xs text-neutral-400 bg-neutral-800 hover:bg-red-900/50 hover:text-red-400 rounded transition-all"
             >
               Undo All
             </button>

@@ -72,20 +72,20 @@ export function ProjectsPage() {
   return (
     <main className="flex min-h-screen flex-col bg-[#0a0a0a]">
       {/* Content */}
-      <div className="flex-1 px-8 py-10">
+      <div className="flex-1 px-8 py-6">
         <div className="mx-auto max-w-4xl">
           {/* Section Title */}
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-medium uppercase tracking-wider text-white/40">
               Projects
             </h2>
           </div>
 
           {/* Projects Grid */}
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="stagger-grid grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {/* New Project Card */}
             {isCreating ? (
-              <div className="flex aspect-[4/3] flex-col overflow-hidden rounded-lg border border-white/20 bg-[#111]">
+              <div className="animate-scale-in flex aspect-[4/3] flex-col overflow-hidden rounded-lg border border-white/20 bg-[#111]">
                 <div className="flex flex-1 items-center justify-center p-4">
                   <FolderOpen
                     size={32}
@@ -113,12 +113,12 @@ export function ProjectsPage() {
             ) : (
               <button
                 onClick={() => setIsCreating(true)}
-                className="group flex aspect-[4/3] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#111] transition-all hover:border-white/20 hover:bg-[#151515]"
+                className="btn-press card-hover group flex aspect-[4/3] flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-[#111]"
               >
                 <Plus
                   size={32}
                   weight="light"
-                  className="text-white/30 transition-colors group-hover:text-white/50"
+                  className="text-white/30 transition-all duration-300 group-hover:rotate-90 group-hover:text-white/50"
                 />
                 <span className="mt-2 text-xs text-white/30 transition-colors group-hover:text-white/50">
                   New Project
@@ -130,7 +130,7 @@ export function ProjectsPage() {
             {projects.map((project) => (
               <div
                 key={project.id}
-                className="group relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#0d0d0d] transition-all hover:border-white/20"
+                className="card-hover group relative aspect-[4/3] overflow-hidden rounded-lg border border-white/10 bg-[#0d0d0d]"
               >
                 {/* Clickable area */}
                 <button
@@ -150,7 +150,7 @@ export function ProjectsPage() {
                     <img
                       src={project.thumbnail}
                       alt={project.name}
-                      className="absolute inset-0 h-full w-full object-cover"
+                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                     />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center">
@@ -177,7 +177,7 @@ export function ProjectsPage() {
                     e.stopPropagation();
                     setDeleteConfirm(project);
                   }}
-                  className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/50 opacity-0 transition-all hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
+                  className="delete-glow absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-white/50 opacity-0 transition-all hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
                 >
                   <X size={14} weight="bold" />
                 </button>
@@ -187,7 +187,7 @@ export function ProjectsPage() {
 
           {/* Empty State */}
           {projects.length === 0 && !isCreating && (
-            <div className="mt-16 flex flex-col items-center justify-center text-center">
+            <div className="mt-10 flex flex-col items-center justify-center text-center">
               <FolderOpen
                 size={48}
                 weight="duotone"
@@ -203,23 +203,23 @@ export function ProjectsPage() {
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
-          <div className="mx-4 w-full max-w-sm rounded-lg border border-white/10 bg-[#111] p-6">
-            <h3 className="text-lg font-semibold text-white">Delete Project</h3>
+        <div className="animate-fade-in fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+          <div className="animate-scale-in mx-4 w-full max-w-sm rounded-lg border border-white/10 bg-[#1a1a1a] p-4">
+            <h3 className="text-base font-semibold text-white">Delete Project</h3>
             <p className="mt-2 text-sm text-white/60">
               Are you sure you want to delete "{deleteConfirm.name}"? This
               action cannot be undone.
             </p>
-            <div className="mt-6 flex gap-3">
+            <div className="mt-4 flex gap-3">
               <button
                 onClick={() => setDeleteConfirm(null)}
-                className="flex-1 rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
+                className="btn-press flex-1 rounded border border-white/10 bg-transparent px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+                className="btn-press flex-1 rounded bg-red-500/80 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
               >
                 Delete
               </button>

@@ -56,12 +56,13 @@ export function ConversationInput({
       <div className="w-full max-w-2xl space-y-3">
         {/* Suggestion buttons */}
         <div className="flex flex-wrap justify-center gap-2">
-          {SUGGESTIONS.map((suggestion) => (
+          {SUGGESTIONS.map((suggestion, index) => (
             <button
               key={suggestion.label}
               onClick={() => handleSuggestionClick(suggestion.prompt)}
               disabled={disabled}
-              className="px-3 py-1.5 text-xs font-medium text-neutral-300 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 hover:border-neutral-600 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn-press px-3 py-1.5 text-xs font-medium text-white/70 bg-transparent hover:bg-white/5 border border-white/10 hover:border-white/20 rounded transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed animate-fade-in-up"
+              style={{ animationDelay: `${index * 50}ms` }}
             >
               {suggestion.label}
             </button>
@@ -69,7 +70,7 @@ export function ConversationInput({
         </div>
 
         {/* Input box */}
-        <div className="relative bg-neutral-800 rounded-2xl border border-neutral-700 shadow-lg shadow-black/20 focus-within:border-neutral-500 transition-colors">
+        <div className="relative bg-[#1a1a1a] rounded-lg border border-white/10 focus-within:border-white/20 transition-colors">
           <textarea
             ref={textareaRef}
             value={value}
@@ -78,19 +79,19 @@ export function ConversationInput({
             placeholder={placeholder}
             disabled={disabled}
             rows={1}
-            className="w-full bg-transparent text-neutral-100 placeholder:text-neutral-500 px-4 py-3 pr-12 resize-none focus:outline-none text-sm leading-relaxed"
+            className="w-full bg-transparent text-white placeholder:text-white/30 px-3 py-2.5 pr-10 resize-none focus:outline-none text-sm leading-relaxed"
           />
           <button
             onClick={handleSubmit}
             disabled={disabled || !value.trim()}
-            className="absolute right-2 bottom-2 p-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white transition-colors"
+            className="btn-press absolute right-2 bottom-2 p-1.5 rounded bg-[#333] hover:bg-[#444] disabled:bg-neutral-800 disabled:text-neutral-600 text-white transition-all hover:scale-110"
             aria-label="Send message"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
               viewBox="0 0 20 20"
               fill="currentColor"
-              className="w-4 h-4"
+              className="w-4 h-4 transition-transform group-hover:translate-x-0.5"
             >
               <path d="M3.105 2.288a.75.75 0 0 0-.826.95l1.414 4.926A1.5 1.5 0 0 0 5.135 9.25h6.115a.75.75 0 0 1 0 1.5H5.135a1.5 1.5 0 0 0-1.442 1.086l-1.414 4.926a.75.75 0 0 0 .826.95 28.897 28.897 0 0 0 15.293-7.155.75.75 0 0 0 0-1.114A28.897 28.897 0 0 0 3.105 2.288Z" />
             </svg>

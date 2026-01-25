@@ -41,7 +41,7 @@ export function PlaybackControls({
     onSeek(Math.max(0, Math.min(frame, totalFrames - 1)));
   };
 
-  const btnBase = "flex items-center justify-center rounded transition-colors";
+  const btnBase = "flex items-center justify-center rounded transition-all duration-150 active:scale-90";
   const btnSmall = `${btnBase} h-7 w-7 text-neutral-400 hover:text-white hover:bg-neutral-800`;
   const btnMedium = `${btnBase} h-8 w-8 text-neutral-300 hover:text-white hover:bg-neutral-800`;
 
@@ -79,10 +79,10 @@ export function PlaybackControls({
           {/* Play/pause - prominent */}
           <button
             onClick={isPlaying ? onPause : onPlay}
-            className={`${btnBase} h-10 w-10 mx-1 rounded-full bg-white text-black hover:bg-neutral-200`}
+            className={`${btnBase} h-10 w-10 mx-1 rounded-full bg-[#333] text-white hover:bg-[#444] ${!isPlaying ? 'animate-subtle-pulse' : ''}`}
             title="Play/Pause (Space)"
           >
-            {isPlaying ? <Pause size={20} weight="fill" /> : <Play size={20} weight="fill" />}
+            {isPlaying ? <Pause size={20} weight="fill" /> : <Play size={20} weight="fill" className="ml-0.5" />}
           </button>
 
           <button onClick={onStepForward} className={btnMedium} title="Step forward 1 frame (.)">
