@@ -1,20 +1,27 @@
+import { invoke } from "@tauri-apps/api/core";
 import type { SourceDescription, DescriptionProgress } from "../types";
-import { uploadVideoFile, describeSource, RateLimitError } from "./gemini";
+import { describeFrames, FrameData, RateLimitError } from "./gemini";
 import { getCachedDescriptions, setCachedDescriptions } from "./cache";
 
 const MAX_RETRIES = 3;
+const MAX_FRAMES = 30; // Limit to 30 frames (30 seconds) for Gemini
+
+interface ExtractedFrame {
+  timestamp: number;
+  data: string;
+}
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Describe a source video file using Gemini.
- * Uploads the video once, asks Gemini for time-ranged descriptions.
+ * Describe a source video using frame extraction and Gemini image recognition.
+ * Extracts 1 frame per second, sends to Gemini for visual analysis.
  * Returns the descriptions array, or null if it fails.
  */
-export async function describeSourceFile(
-  file: File,
+export async function describeSourceWithFrames(
+  sourcePath: string,
   durationSeconds: number,
   cid?: string,
   onProgress?: (progress: DescriptionProgress) => void
@@ -26,7 +33,7 @@ export async function describeSourceFile(
     return null;
   }
 
-  console.log(`[describeSource] Describing source file "${file.name}" (${durationSeconds}s)`);
+  console.log(`[describeSource] Describing source with frames: "${sourcePath}" (${durationSeconds}s)`);
 
   // Check cache first
   if (cid) {
@@ -37,19 +44,30 @@ export async function describeSourceFile(
     }
   }
 
-  // Upload video
-  console.log(`[describeSource] Cache miss — uploading video file (${(file.size / 1024 / 1024).toFixed(1)} MB, type: ${file.type})`);
+  // Extract frames at 1fps
+  console.log(`[describeSource] Cache miss — extracting frames at 1fps...`);
   onProgress?.({ phase: "uploading", current: 0, total: 1 });
-  const { uri: fileUri, mimeType } = await uploadVideoFile(file);
-  console.log(`[describeSource] Upload complete — fileUri: ${fileUri}`);
 
-  // Gemini call with retry
+  const extractedFrames = await invoke<ExtractedFrame[]>("extract_frames_base64", {
+    path: sourcePath,
+    maxFrames: MAX_FRAMES,
+  });
+
+  console.log(`[describeSource] Extracted ${extractedFrames.length} frames`);
+
+  // Convert to FrameData format
+  const frames: FrameData[] = extractedFrames.map((f) => ({
+    timestamp: f.timestamp,
+    data: f.data,
+  }));
+
+  // Call Gemini with frames
   onProgress?.({ phase: "describing", current: 1, total: 1 });
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const descriptions = await describeSource(fileUri, mimeType, durationSeconds);
-      console.log(`[describeSource] Got ${descriptions.length} time-ranged descriptions`);
+      const descriptions = await describeFrames(frames, durationSeconds);
+      console.log(`[describeSource] Got ${descriptions.length} time-ranged descriptions from frames`);
 
       // Cache result
       if (cid) {

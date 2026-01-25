@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Source, Word, SegmentGroup, Sentence, SourceDescription, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToWords } from "./transcribe";
 import { groupWords } from "./segmentGrouping";
-import { describeSourceFile } from "./describeSegments";
+import { describeSourceWithFrames } from "./describeSegments";
 import { requestAssemblyCut, groupWordsForAssembly } from "./assemblyCut";
 
 /**
@@ -77,37 +77,6 @@ async function loadFileFromPath(path: string, name: string): Promise<File> {
   const mimeType = ext === "mov" ? "video/quicktime" : "video/mp4";
 
   return new File([bytes], name, { type: mimeType });
-}
-
-/**
- * Extract a short clip from a video for Gemini analysis.
- * Uses FFmpeg to extract the first N seconds and convert to MP4 (H.264).
- * This avoids uploading large files and ensures codec compatibility.
- */
-const GEMINI_CLIP_DURATION = 5; // seconds
-
-async function loadClipForGemini(path: string, name: string): Promise<File> {
-  console.log(`[pipeline] Extracting ${GEMINI_CLIP_DURATION}s clip from "${name}" for Gemini...`);
-
-  // Extract clip using FFmpeg (returns base64-encoded MP4)
-  const base64Data = await invoke<string>("extract_clip_base64", {
-    path,
-    durationSeconds: GEMINI_CLIP_DURATION,
-  });
-
-  // Decode base64 to binary
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-
-  const sizeMB = bytes.length / 1024 / 1024;
-  console.log(`[pipeline] Extracted clip: ${sizeMB.toFixed(2)}MB (MP4/H.264)`);
-
-  // Always MP4 since we convert with FFmpeg
-  const clipName = name.replace(/\.[^.]+$/, "_clip.mp4");
-  return new File([bytes], clipName, { type: "video/mp4" });
 }
 
 /**
@@ -232,12 +201,9 @@ export async function runPipeline(
       });
 
       try {
-        console.log(`[pipeline] Phase 2.5: Extracting clip from "${source.name}" for Gemini...`);
-        const file = await loadClipForGemini(source.path, source.name);
-
         const cid = cidMap.get(source.id);
-        console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
-        const descriptions = await describeSourceFile(file, duration, cid);
+        console.log(`[pipeline] Phase 2.5: Extracting frames from "${source.name}" for Gemini (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
+        const descriptions = await describeSourceWithFrames(source.path, duration, cid);
 
         if (descriptions && descriptions.length > 0) {
           source.descriptions = descriptions;
