@@ -83,29 +83,6 @@ export function VideoPanel() {
     };
   }, [setCurrentFrame, playerReady]);
 
-  // Global keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger when typing in inputs
-      const target = e.target as HTMLElement;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
-        return;
-      }
-
-      if (e.code === "Space") {
-        e.preventDefault(); // Prevent page scroll
-        if (isPlaying) {
-          pause();
-        } else {
-          play();
-        }
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, play, pause]);
-
   const handlePlay = useCallback(() => {
     play();
   }, [play]);
@@ -121,6 +98,94 @@ export function VideoPanel() {
     },
     [setCurrentFrame],
   );
+
+  const handleSkipBack = useCallback(() => {
+    const current = playerRef.current?.getCurrentFrame() ?? 0;
+    const newFrame = Math.max(0, current - FPS * 5);
+    playerRef.current?.seekTo(newFrame);
+    setCurrentFrame(newFrame);
+  }, [setCurrentFrame]);
+
+  const handleSkipForward = useCallback(() => {
+    const current = playerRef.current?.getCurrentFrame() ?? 0;
+    const newFrame = Math.min(totalFrames - 1, current + FPS * 5);
+    playerRef.current?.seekTo(newFrame);
+    setCurrentFrame(newFrame);
+  }, [totalFrames, setCurrentFrame]);
+
+  const handleStepBack = useCallback(() => {
+    const current = playerRef.current?.getCurrentFrame() ?? 0;
+    const newFrame = Math.max(0, current - 1);
+    playerRef.current?.seekTo(newFrame);
+    setCurrentFrame(newFrame);
+  }, [setCurrentFrame]);
+
+  const handleStepForward = useCallback(() => {
+    const current = playerRef.current?.getCurrentFrame() ?? 0;
+    const newFrame = Math.min(totalFrames - 1, current + 1);
+    playerRef.current?.seekTo(newFrame);
+    setCurrentFrame(newFrame);
+  }, [totalFrames, setCurrentFrame]);
+
+  const handleJumpStart = useCallback(() => {
+    playerRef.current?.seekTo(0);
+    setCurrentFrame(0);
+  }, [setCurrentFrame]);
+
+  const handleJumpEnd = useCallback(() => {
+    const endFrame = Math.max(0, totalFrames - 1);
+    playerRef.current?.seekTo(endFrame);
+    setCurrentFrame(endFrame);
+  }, [totalFrames, setCurrentFrame]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger when typing in inputs
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) {
+        return;
+      }
+
+      switch (e.code) {
+        case "Space":
+          e.preventDefault(); // Prevent page scroll
+          if (isPlaying) {
+            pause();
+          } else {
+            play();
+          }
+          break;
+        case "ArrowLeft":
+          e.preventDefault();
+          handleSkipBack();
+          break;
+        case "ArrowRight":
+          e.preventDefault();
+          handleSkipForward();
+          break;
+        case "Comma":
+          e.preventDefault();
+          handleStepBack();
+          break;
+        case "Period":
+          e.preventDefault();
+          handleStepForward();
+          break;
+        case "Home":
+          e.preventDefault();
+          handleJumpStart();
+          break;
+        case "End":
+          e.preventDefault();
+          handleJumpEnd();
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPlaying, play, pause, handleSkipBack, handleSkipForward, handleStepBack, handleStepForward, handleJumpStart, handleJumpEnd]);
 
   // Memoize inputProps to prevent unnecessary Player re-renders
   const inputProps = useMemo(
@@ -189,6 +254,12 @@ export function VideoPanel() {
         onPlay={handlePlay}
         onPause={handlePause}
         onSeek={handleSeek}
+        onSkipBack={handleSkipBack}
+        onSkipForward={handleSkipForward}
+        onStepBack={handleStepBack}
+        onStepForward={handleStepForward}
+        onJumpStart={handleJumpStart}
+        onJumpEnd={handleJumpEnd}
       />
     </div>
   );
