@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Plus, FolderOpen, FilmStrip, X } from "@phosphor-icons/react";
+import { Quantum } from "ldrs/react";
+import "ldrs/react/Quantum.css";
 import { useProjectStore } from "../stores/useProjectStore";
 import { loadProjects, saveProjects } from "../api/projects";
 import type { ProjectMeta } from "../types";
@@ -231,6 +233,13 @@ export function ProjectsPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Loading overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#0a0a0a]">
+          <Quantum size="80" speed="1.75" color="white" />
         </div>
       )}
     </main>

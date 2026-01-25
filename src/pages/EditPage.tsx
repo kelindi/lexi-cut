@@ -7,6 +7,7 @@ import { ConversationPanel } from "../components/edit/ConversationPanel";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { runPipeline } from "../api/processingPipeline";
+import { executeAgenticAssemblyCut } from "../api/agenticEdit";
 
 function ResizeHandle({ orientation = "horizontal" }: { orientation?: "horizontal" | "vertical" }) {
   const isHorizontal = orientation === "horizontal";
@@ -79,6 +80,23 @@ export function EditPage() {
       setTranscriptlessSourceIds(result.transcriptlessSourceIds);
       // Initialize the timeline from fresh sentences
       initializeTimeline(result.sentences);
+
+      // Run agentic assembly cut (graceful fallback to chronological order)
+      setPhase("assembling");
+      try {
+        await executeAgenticAssemblyCut({
+          onToolStart: (name, input) => {
+            console.log(`[assemblyCut] Tool: ${name}`, input);
+          },
+          onToolComplete: (name, result) => {
+            console.log(`[assemblyCut] ${name}: ${result}`);
+          },
+        });
+      } catch (e) {
+        console.warn("[assemblyCut] Failed, using chronological order:", e);
+        // Timeline stays in chronological order - graceful fallback
+      }
+
       setPhase("ready");
       setProgress(null);
     } catch (e) {
@@ -109,15 +127,18 @@ export function EditPage() {
     }
   }, [sources.length, segmentGroups.length, timeline.entries.length, phase, runProcessing]);
 
-  const isReady = phase === "ready" && (segmentGroups.length > 0 || timeline.entries.length > 0);
+  const hasData = segmentGroups.length > 0 || timeline.entries.length > 0;
+  const isReady = phase === "ready" && hasData;
   const isProcessing = phase !== "idle" && phase !== "ready" && phase !== "error";
+  // Show spinner when we have sources but no data yet (about to start processing)
+  const isAboutToProcess = phase === "idle" && sources.length > 0 && !hasData;
 
   // Show processing/error states
-  if (isProcessing || phase === "error" || (phase === "idle" && sources.length === 0)) {
+  if (isProcessing || isAboutToProcess || phase === "error") {
     return (
       <main className="h-[calc(100vh-3rem)] bg-[#0a0a0a]">
         <ProcessingView
-          phase={phase}
+          phase={isAboutToProcess ? "transcribing" : phase}
           progress={progress}
           error={error}
           onRetry={runProcessing}

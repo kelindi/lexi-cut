@@ -14,6 +14,7 @@ import {
   restoreSentences,
   reorderSentences,
 } from "../stores/useAgenticStore";
+import { useProjectStore } from "../stores/useProjectStore";
 
 const API_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-4-20250514";
@@ -282,7 +283,8 @@ async function* parseSSEStream(
 async function streamingApiCall(
   apiKey: string,
   messages: Message[],
-  callbacks: AgenticEditCallbacks
+  callbacks: AgenticEditCallbacks,
+  systemPrompt: string = SYSTEM_PROMPT
 ): Promise<{ content: ContentBlock[]; stopReason: string }> {
   const response = await fetch(API_URL, {
     method: "POST",
@@ -295,7 +297,7 @@ async function streamingApiCall(
     body: JSON.stringify({
       model: MODEL,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       tools: TOOLS,
       messages,
       stream: true,
@@ -491,6 +493,181 @@ User request: ${userInstruction}`;
       `[agenticEdit] Hit max iterations (${MAX_TOOL_ITERATIONS}), stopping`
     );
     finalMessage = `Completed ${toolCallCount} edits (reached iteration limit)`;
+    callbacks.onComplete?.(finalMessage, commandIds);
+
+    return {
+      success: true,
+      message: finalMessage,
+      toolCallCount,
+      commandIds,
+    };
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    callbacks.onError?.(err);
+    throw err;
+  }
+}
+
+// Assembly cut system prompt - focused on initial timeline refinement
+const ASSEMBLY_CUT_SYSTEM_PROMPT = `You are an AI video editor assistant performing an initial assembly cut. Analyze the timeline and make it production-ready.
+
+You have access to the following tools:
+- delete_words: Remove specific words from a sentence (for filler words, stutters, etc.)
+- restore_words: Bring back previously deleted words
+- delete_sentences: Remove entire sentences from the timeline
+- restore_sentences: Bring back previously deleted sentences
+- reorder_sentences: Change the order of sentences in the timeline
+
+Your tasks:
+1. Identify retakes - sentences that are duplicated or very similar content within a short time span. Keep the best take (usually more complete, higher confidence) and delete the others using delete_sentences.
+2. Remove false starts - very short incomplete sentences that are followed by a complete version.
+3. Reorder for narrative flow - if the content would make more sense in a different order, use reorder_sentences.
+4. Remove off-topic tangents that don't fit the main narrative.
+
+Guidelines:
+- Be conservative - only delete clear duplicates/retakes, not unique content
+- Look at Context hints (from visual descriptions) to understand what's happening
+- Prefer keeping later takes over earlier ones (speaker usually improves)
+- Work systematically, making multiple tool calls as needed
+- After making changes, provide a brief summary of what you did
+
+The timeline is currently in chronological order. Refine it for the best viewing experience.
+Words marked with ~ prefix are already excluded/deleted.
+Sentences marked as EXCLUDED are already removed from the timeline.`;
+
+/**
+ * Execute an agentic assembly cut on the timeline
+ *
+ * This runs after the pipeline initializes the timeline with chronological order.
+ * It uses Claude to identify retakes, remove duplicates, and reorder for narrative flow.
+ * Gracefully returns success if API is unavailable (timeline stays in chronological order).
+ */
+export async function executeAgenticAssemblyCut(
+  callbacks: AgenticEditCallbacks = {}
+): Promise<AgenticEditResult> {
+  console.log(`[agenticEdit] Starting assembly cut...`);
+
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    console.warn("[agenticEdit] No API key, skipping assembly cut");
+    return {
+      success: true,
+      message: "Skipped assembly cut (no API key)",
+      toolCallCount: 0,
+      commandIds: [],
+    };
+  }
+
+  // Check if there's enough content to warrant assembly cut
+  const state = useProjectStore.getState();
+  if (state.timeline.entries.length < 2) {
+    console.log("[agenticEdit] Only 1 sentence, skipping assembly cut");
+    return {
+      success: true,
+      message: "Skipped assembly cut (single sentence)",
+      toolCallCount: 0,
+      commandIds: [],
+    };
+  }
+
+  const context = getAgentContext();
+
+  const userMessage = `Current timeline state:
+
+${context}
+
+---
+
+Please perform an assembly cut on this timeline. Identify and remove retakes/duplicates, and reorder for better narrative flow if needed.`;
+
+  const messages: Message[] = [{ role: "user", content: userMessage }];
+  const commandIds: string[] = [];
+  let toolCallCount = 0;
+  let finalMessage = "";
+
+  try {
+    // Agentic loop with assembly cut system prompt
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      console.log(`[agenticEdit] Assembly cut iteration ${iteration + 1}, calling Claude...`);
+
+      const { content, stopReason } = await streamingApiCall(
+        apiKey,
+        messages,
+        callbacks,
+        ASSEMBLY_CUT_SYSTEM_PROMPT
+      );
+
+      console.log(
+        `[agenticEdit] Response stop_reason: ${stopReason}, content blocks: ${content.length}`
+      );
+
+      // Check if Claude wants to use tools
+      const toolUseBlocks = content.filter(
+        (block): block is ToolUseBlock => block.type === "tool_use"
+      );
+
+      if (toolUseBlocks.length === 0) {
+        // No tool calls - Claude is done, extract final message
+        const textBlock = content.find(
+          (block): block is TextBlock => block.type === "text"
+        );
+        finalMessage = textBlock?.text || "Assembly cut completed.";
+
+        console.log(
+          `[agenticEdit] Assembly cut completed with ${toolCallCount} tool calls. Message: ${finalMessage.slice(0, 100)}...`
+        );
+
+        callbacks.onComplete?.(finalMessage, commandIds);
+
+        return {
+          success: true,
+          message: finalMessage,
+          toolCallCount,
+          commandIds,
+        };
+      }
+
+      // Execute tool calls and build results
+      const toolResults: ToolResult[] = [];
+
+      for (const toolUse of toolUseBlocks) {
+        console.log(
+          `[agenticEdit] Assembly cut executing tool: ${toolUse.name}`,
+          toolUse.input
+        );
+
+        const { success, result, commandId } = executeTool(
+          toolUse.name,
+          toolUse.input
+        );
+
+        if (commandId) {
+          commandIds.push(commandId);
+        }
+
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolUse.id,
+          content: result,
+        });
+
+        toolCallCount++;
+        callbacks.onToolComplete?.(toolUse.name, result, commandId);
+        console.log(
+          `[agenticEdit] Assembly cut tool ${toolUse.name}: ${success ? "success" : "failed"} - ${result}`
+        );
+      }
+
+      // Add assistant response and tool results to messages
+      messages.push({ role: "assistant", content });
+      messages.push({ role: "user", content: toolResults as unknown as string });
+    }
+
+    // Hit max iterations
+    console.warn(
+      `[agenticEdit] Assembly cut hit max iterations (${MAX_TOOL_ITERATIONS}), stopping`
+    );
+    finalMessage = `Assembly cut completed ${toolCallCount} edits (reached iteration limit)`;
     callbacks.onComplete?.(finalMessage, commandIds);
 
     return {

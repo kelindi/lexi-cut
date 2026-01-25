@@ -3,7 +3,7 @@ import type { Source, Word, SegmentGroup, Sentence, SourceDescription, Processin
 import { transcribeFile, mapTranscriptToWords } from "./transcribe";
 import { groupWords } from "./segmentGrouping";
 import { describeSourceWithFrames } from "./describeSegments";
-import { requestAssemblyCut, groupWordsForAssembly } from "./assemblyCut";
+import { groupWordsForAssembly } from "./assemblyCut";
 import { waitForInFlight } from "./backgroundProcessing";
 
 /**
@@ -246,55 +246,10 @@ export async function runPipeline(
     console.log("[pipeline] Phase 2.5: SKIPPED (no VITE_GEMINI_API_KEY)");
   }
 
-  // Phase 3: Assembly cut (if multiple groups)
-  console.log(`[pipeline] Phase 3: Assembly cut (${allGroups.length} groups, ${sources.length} sources)`);
-  let orderedGroupIds: string[];
-
-  if (allGroups.length > 1 && sources.length > 1) {
-    console.log(`[pipeline] Phase 3: Multiple sources detected, calling Claude for narrative ordering...`);
-    onProgress?.({
-      current: 2,
-      total: 2,
-      message: "Analyzing narrative flow...",
-    });
-
-    const sourceNames: Record<string, string> = {};
-    for (const source of sources) {
-      sourceNames[source.id] = source.name;
-    }
-
-    try {
-      const result = await requestAssemblyCut({
-        segmentGroups: allGroups,
-        sourceNames,
-      });
-      console.log(`[pipeline] Phase 3: Assembly cut returned ${result.orderedSegmentIds.length} ordered IDs`);
-      console.log(`[pipeline] Phase 3: Narrative summary: "${result.narrativeSummary?.substring(0, 100)}"`);
-
-      // Use Claude's recommended order, filtering to valid IDs
-      const validIds = new Set(allGroups.map((g) => g.groupId));
-      orderedGroupIds = result.orderedSegmentIds.filter((id) => validIds.has(id));
-
-      const missingCount = allGroups.length - orderedGroupIds.length;
-      if (missingCount > 0) {
-        console.warn(`[pipeline] Phase 3: ${missingCount} groups missing from Claude's response, appending at end`);
-      }
-
-      // Add any missing groups at the end (in case Claude missed some)
-      for (const group of allGroups) {
-        if (!orderedGroupIds.includes(group.groupId)) {
-          orderedGroupIds.push(group.groupId);
-        }
-      }
-    } catch (error) {
-      // If assembly cut fails, just use chronological order
-      console.error("[pipeline] Phase 3: Assembly cut FAILED:", error);
-      orderedGroupIds = allGroups.map((g) => g.groupId);
-    }
-  } else {
-    console.log(`[pipeline] Phase 3: Single source or <=1 groups, using chronological order`);
-    orderedGroupIds = allGroups.map((g) => g.groupId);
-  }
+  // Phase 3: Use chronological order (agentic assembly cut runs after timeline init in EditPage)
+  console.log(`[pipeline] Phase 3: Using chronological order (${allGroups.length} groups)`);
+  console.log(`[pipeline] Phase 3: Agentic assembly cut will run after timeline initialization`);
+  const orderedGroupIds = allGroups.map((g) => g.groupId);
 
   // Generate sentences by splitting words on sentence boundaries
   const sentenceGroups = groupWordsForAssembly(allWords);
