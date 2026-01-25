@@ -9,6 +9,7 @@ export function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<ProjectMeta | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const openProject = useProjectStore((s) => s.openProject);
 
   useEffect(() => {
@@ -25,7 +26,7 @@ export function ProjectsPage() {
     try {
       await saveProjects(updated);
       setProjects(updated);
-      openProject(id, trimmed);
+      await openProject(id, trimmed);
       setName("");
       setIsCreating(false);
     } catch (err) {
@@ -139,7 +140,15 @@ export function ProjectsPage() {
               >
                 {/* Clickable area */}
                 <button
-                  onClick={() => openProject(project.id, project.name)}
+                  onClick={async () => {
+                    setIsLoading(true);
+                    try {
+                      await openProject(project.id, project.name);
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }}
+                  disabled={isLoading}
                   className="absolute inset-0 text-left"
                 >
                   {/* Full cell background */}

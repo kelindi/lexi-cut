@@ -8,6 +8,7 @@ import type {
   Source,
 } from "../types";
 import { saveProjectData, loadProjectData, type ProjectData } from "../api/projects";
+import { useSourcesStore } from "./useSourcesStore";
 
 interface ProjectState {
   // Project identity
@@ -44,7 +45,7 @@ interface ProjectState {
 
   // Project actions
   createProject: (name: string) => void;
-  openProject: (id: string, name: string) => void;
+  openProject: (id: string, name: string) => Promise<void>;
   closeProject: () => void;
   markDirty: () => void;
   markClean: () => void;
@@ -104,14 +105,49 @@ export const useProjectStore = create<ProjectState>((set) => ({
       projectName: name,
     }),
 
-  openProject: (id, name) =>
+  openProject: async (id, name) => {
+    // First set the project identity with initial state
     set({
       ...initialState,
       projectId: id,
       projectName: name,
-    }),
+    });
 
-  closeProject: () => set(initialState),
+    // Try to load saved project data
+    try {
+      const data = await loadProjectData(id);
+      if (data) {
+        // Restore project store state
+        set({
+          projectId: data.id,
+          projectName: data.name,
+          words: data.words,
+          sentences: data.sentences,
+          segmentGroups: data.segmentGroups,
+          orderedSentenceIds: data.orderedSentenceIds,
+          excludedSentenceIds: data.excludedSentenceIds,
+          excludedWordIds: data.excludedWordIds,
+          transcriptlessSourceIds: data.transcriptlessSourceIds,
+          orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
+          excludedGroupIds: [],
+          isDirty: false,
+          lastSavedAt: data.savedAt,
+          phase: data.words.length > 0 ? "ready" : "idle",
+        });
+
+        // Restore sources to the sources store
+        useSourcesStore.getState().setSources(data.sources);
+      }
+    } catch (error) {
+      console.error("Failed to load project data:", error);
+      // Project will open with empty state (new project or failed load)
+    }
+  },
+
+  closeProject: () => {
+    set(initialState);
+    useSourcesStore.getState().clearSources();
+  },
 
   markDirty: () => set({ isDirty: true }),
   markClean: () => set({ isDirty: false, lastSavedAt: Date.now() }),

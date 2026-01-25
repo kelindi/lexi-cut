@@ -3,6 +3,7 @@ import type { Source, SourceDescription } from "../types";
 
 interface SourcesState {
   sources: Source[];
+  setSources: (sources: Source[]) => void;
   addSources: (sources: Source[]) => void;
   updateSourceCid: (id: string, cid: string) => void;
   updateSourceDescriptions: (id: string, descriptions: SourceDescription[]) => void;
@@ -12,6 +13,7 @@ interface SourcesState {
 
 export const useSourcesStore = create<SourcesState>((set) => ({
   sources: [],
+  setSources: (sources) => set({ sources }),
   addSources: (newSources) =>
     set((state) => ({ sources: [...state.sources, ...newSources] })),
   updateSourceCid: (id, cid) =>
