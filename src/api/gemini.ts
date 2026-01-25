@@ -195,3 +195,104 @@ export class RateLimitError extends Error {
     this.name = "RateLimitError";
   }
 }
+
+export interface FrameData {
+  timestamp: number;
+  data: string; // base64-encoded JPEG
+}
+
+/**
+ * Describe video content using extracted frames (1 per second).
+ * Sends frames as images to Gemini for visual understanding.
+ */
+export async function describeFrames(
+  frames: FrameData[],
+  durationSeconds: number
+): Promise<SourceDescriptionResult[]> {
+  const apiKey = getApiKey();
+  console.log(`[gemini] describeFrames: analyzing ${frames.length} frames (duration: ${durationSeconds}s)`);
+
+  // Build parts array with all frames as inline images
+  const parts: Array<{ inlineData: { mimeType: string; data: string } } | { text: string }> = [];
+
+  // Add each frame as an image
+  for (const frame of frames) {
+    parts.push({
+      inlineData: {
+        mimeType: "image/jpeg",
+        data: frame.data,
+      },
+    });
+  }
+
+  // Add the prompt
+  const prompt = `I've provided ${frames.length} frames extracted from a ${durationSeconds} second video, at 1 frame per second. Each frame represents what's happening at that second (frame 1 = second 0, frame 2 = second 1, etc.).
+
+Analyze these frames and describe what is visually happening throughout the video. Break the video into logical segments based on changes in action, subject, or setting. For each segment, provide:
+- start: the start time in seconds
+- end: the end time in seconds
+- description: a concise 1-2 sentence description focusing on actions, subjects, and setting
+
+Rules:
+- Times are in seconds (integers)
+- Segments should cover the entire video from 0 to ${durationSeconds} without gaps
+- Each segment should represent a visually distinct moment or scene
+- Combine consecutive similar frames into single segments
+- Be specific about what you see in the frames`;
+
+  parts.push({ text: prompt });
+
+  const body = {
+    contents: [{ parts }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            start: { type: "NUMBER", description: "Segment start time in seconds" },
+            end: { type: "NUMBER", description: "Segment end time in seconds" },
+            description: { type: "STRING", description: "Concise 1-2 sentence visual description" },
+          },
+          required: ["start", "end", "description"],
+        },
+      },
+    },
+  };
+
+  const response = await fetch(`${GENERATE_URL}?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (response.status === 429) {
+    console.warn(`[gemini] describeFrames: Rate limited (429)`);
+    throw new RateLimitError("Gemini rate limit exceeded");
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error(`[gemini] describeFrames: Failed (${response.status}): ${errorText}`);
+    throw new Error(`Gemini generateContent failed (${response.status}): ${errorText}`);
+  }
+
+  const result = (await response.json()) as GeminiGenerateContentResponse;
+  const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+  if (!text) {
+    console.error(`[gemini] describeFrames: Empty response. Full result:`, JSON.stringify(result, null, 2));
+    throw new Error("Gemini returned empty response");
+  }
+
+  console.log(`[gemini] describeFrames: Got ${text.length} chars response`);
+
+  const parsed = JSON.parse(text) as SourceDescriptionResult[];
+  console.log(`[gemini] describeFrames: Parsed ${parsed.length} time-ranged descriptions`);
+  console.log(`[gemini] describeFrames: Descriptions:`);
+  for (const desc of parsed) {
+    console.log(`  [${desc.start}s - ${desc.end}s] ${desc.description}`);
+  }
+  return parsed;
+}

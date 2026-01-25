@@ -2,8 +2,9 @@ mod commands;
 mod services;
 
 use commands::{
-    export_video, generate_cid, generate_thumbnail, get_cached, get_duration, load_project_data,
-    load_projects, read_file_base64, save_project_data, save_projects, set_cached,
+    export_video, extract_clip_base64, extract_frames_base64, generate_cid, generate_thumbnail,
+    get_cached, get_duration, load_project_data, load_projects, read_file_base64,
+    save_project_data, save_projects, set_cached,
 };
 use services::CacheDb;
 use tauri::Manager;
@@ -32,6 +33,8 @@ pub fn run() {
             generate_cid,
             get_duration,
             export_video,
+            extract_clip_base64,
+            extract_frames_base64,
             read_file_base64,
             get_cached,
             set_cached,

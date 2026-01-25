@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { Source, Word, SegmentGroup, Sentence, SourceDescription, ProcessingProgress } from "../types";
 import { transcribeFile, mapTranscriptToWords } from "./transcribe";
 import { groupWords } from "./segmentGrouping";
-import { describeSourceFile } from "./describeSegments";
+import { describeSourceWithFrames } from "./describeSegments";
 import { requestAssemblyCut, groupWordsForAssembly } from "./assemblyCut";
 
 /**
@@ -186,36 +186,40 @@ export async function runPipeline(
 
   console.log(`[pipeline] Phase 2 COMPLETE: ${allGroups.length} total groups`);
 
-  // Phase 2.5: Describe sources with Gemini (optional, one call per source)
+  // Phase 2.5: Describe sources with Gemini (optional, parallel processing)
   const geminiKey = import.meta.env.VITE_GEMINI_API_KEY;
   if (geminiKey) {
-    console.log(`[pipeline] Phase 2.5: Describing ${sources.length} source(s) with Gemini`);
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i];
+    console.log(`[pipeline] Phase 2.5: Describing ${sources.length} source(s) with Gemini (parallel)`);
+    onProgress?.({
+      current: 1,
+      total: sources.length,
+      message: `Describing ${sources.length} sources...`,
+    });
+
+    const descriptionPromises = sources.map(async (source) => {
       const duration = source.duration ?? 30;
-
-      onProgress?.({
-        current: i + 1,
-        total: sources.length,
-        message: `Describing ${source.name}...`,
-      });
-
-      console.log(`[pipeline] Phase 2.5: Loading file "${source.name}" for description...`);
-      const file = await loadFileFromPath(source.path, source.name);
-
       const cid = cidMap.get(source.id);
-      console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
-      const descriptions = await describeSourceFile(file, duration, cid);
 
-      if (descriptions && descriptions.length > 0) {
-        source.descriptions = descriptions;
-        onDescriptions?.(source.id, descriptions);
-        console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
-        console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
-      } else {
-        console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
+      try {
+        console.log(`[pipeline] Phase 2.5: Extracting frames from "${source.name}" for Gemini (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
+        const descriptions = await describeSourceWithFrames(source.path, duration, cid);
+
+        if (descriptions && descriptions.length > 0) {
+          source.descriptions = descriptions;
+          onDescriptions?.(source.id, descriptions);
+          console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
+          console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
+        } else {
+          console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
+        }
+      } catch (err) {
+        console.warn(`[pipeline] Phase 2.5: Failed to describe "${source.name}", skipping...`);
+        console.warn(`[pipeline] Phase 2.5: Error:`, err instanceof Error ? err.message : err);
+        // Continue with other sources - descriptions are optional
       }
-    }
+    });
+
+    await Promise.all(descriptionPromises);
     console.log(`[pipeline] Phase 2.5 COMPLETE`);
     console.log(`[pipeline] Phase 2.5 SUMMARY:`);
     for (const source of sources) {
