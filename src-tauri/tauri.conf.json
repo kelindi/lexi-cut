@@ -19,7 +19,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost http://127.0.0.1:* data: blob:; media-src 'self' asset: http://asset.localhost http://127.0.0.1:* blob:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* https://api.elevenlabs.io https://api.anthropic.com https://generativelanguage.googleapis.com",
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: http://asset.localhost http://127.0.0.1:* data: blob:; media-src 'self' asset: http://asset.localhost http://127.0.0.1:* blob:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:* https://api.elevenlabs.io https://api.anthropic.com https://generativelanguage.googleapis.com https://getlate.dev",
       "assetProtocol": {
         "enable": true,
         "scope": ["**/*"]

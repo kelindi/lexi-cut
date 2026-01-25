@@ -3,6 +3,7 @@ import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import { TranscriptionTest } from "../components/test/TranscriptionTest";
 import { ClaudeTest } from "../components/test/ClaudeTest";
 import { GeminiTest } from "../components/test/GeminiTest";
+import { LateTest } from "../components/test/LateTest";
 import { DebugEditPanel } from "../components/edit/DebugEditPanel";
 import { HistoryPanel } from "../components/edit/HistoryPanel";
 
@@ -46,7 +47,11 @@ export function TestPage() {
         <GeminiTest />
       </Section>
 
-      <Section title="Agent Edit Functions (Word/Sentence Operations)" defaultOpen>
+      <Section title="Late (Social Media Export)" defaultOpen>
+        <LateTest />
+      </Section>
+
+      <Section title="Agent Edit Functions (Word/Sentence Operations)">
         <DebugEditPanel />
       </Section>
 
