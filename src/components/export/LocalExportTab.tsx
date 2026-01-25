@@ -113,21 +113,11 @@ export function LocalExportTab({
         sourcePath: seg.sourcePath,
         startTime: seg.sourceStart,
         endTime: seg.sourceEnd,
-        // Include audio source info for B-roll segments
-        audioSourcePath: seg.audioSourcePath,
-        audioStartTime: seg.audioStart,
-        audioEndTime: seg.audioEnd,
       }));
-
-      const exportOptions = {
-        preset,
-        fadeDuration: 0.167, // ~5 frames at 30fps, matches VideoComposition
-      };
 
       await invoke("export_video", {
         segments: exportSegments,
         outputPath: path,
-        options: exportOptions,
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
