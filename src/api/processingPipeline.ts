@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Source, Segment, SegmentGroup, SourceDescription, ProcessingProgress } from "../types";
-import { transcribeFile, mapTranscriptToSegments } from "./transcribe";
-import { groupSegments } from "./segmentGrouping";
+import type { Source, Word, SegmentGroup, Sentence, SourceDescription, ProcessingProgress } from "../types";
+import { transcribeFile, mapTranscriptToWords } from "./transcribe";
+import { groupWords } from "./segmentGrouping";
 import { describeSourceFile } from "./describeSegments";
-import { requestAssemblyCut } from "./assemblyCut";
+import { requestAssemblyCut, groupWordsForAssembly } from "./assemblyCut";
 
 /**
  * Ensure all sources have CIDs computed.
@@ -47,9 +47,11 @@ async function ensureSourceCids(sources: Source[]): Promise<Map<string, string>>
 }
 
 export interface PipelineResult {
-  segments: Segment[];
+  words: Word[];
   segmentGroups: SegmentGroup[];
   orderedGroupIds: string[];
+  sentences: Sentence[];
+  transcriptlessSourceIds: string[];
 }
 
 export type ProgressCallback = (progress: ProcessingProgress) => void;
@@ -90,8 +92,9 @@ export async function runPipeline(
 ): Promise<PipelineResult> {
   console.log(`[pipeline] ===== PIPELINE START (${sources.length} sources) =====`);
   console.log(`[pipeline] Sources:`, sources.map(s => `"${s.name}" (${s.id})`));
-  const allSegments: Segment[] = [];
+  const allWords: Word[] = [];
   const allGroups: SegmentGroup[] = [];
+  const sourcesWithNoSpeech: { sourceId: string; duration: number }[] = [];
 
   // Pre-phase: Ensure all sources have CIDs for caching
   console.log(`[pipeline] Pre-phase: Computing CIDs...`);
@@ -119,51 +122,42 @@ export async function runPipeline(
     const file = await loadFileFromPath(source.path, source.name);
     console.log(`[pipeline] Phase 1: File loaded (${(file.size / 1024 / 1024).toFixed(1)} MB), transcribing...`);
     const transcript = await transcribeFile(file, cid);
-    let segments = mapTranscriptToSegments(transcript, source.id);
-    console.log(`[pipeline] Phase 1: "${source.name}" → ${segments.length} segments (${transcript.words?.length ?? 0} words from ElevenLabs)`);
+    const words = mapTranscriptToWords(transcript, source.id);
+    console.log(`[pipeline] Phase 1: "${source.name}" → ${words.length} words from ElevenLabs`);
 
-    // If no speech was detected, create a single video-only segment so Gemini can still describe the clip
-    if (segments.length === 0) {
+    // Track sources with no speech for video-only group creation later
+    if (words.length === 0) {
       const fallbackDuration = source.duration ?? 30;
-      console.log(`[pipeline] Phase 1: No speech detected, creating video-only segment (0-${fallbackDuration}s)`);
-      segments = [{
-        id: `seg-${source.id}-0`,
-        video: {
-          sourceId: source.id,
-          start: 0,
-          end: fallbackDuration,
-        },
-      }];
+      console.log(`[pipeline] Phase 1: No speech detected, will create video-only group (0-${fallbackDuration}s)`);
+      sourcesWithNoSpeech.push({ sourceId: source.id, duration: fallbackDuration });
     }
 
-    allSegments.push(...segments);
+    allWords.push(...words);
   }
-  console.log(`[pipeline] Phase 1 COMPLETE: ${allSegments.length} total segments`);
+  console.log(`[pipeline] Phase 1 COMPLETE: ${allWords.length} total words`);
 
-  // Phase 2: Group segments by source
-  console.log(`[pipeline] Phase 2: Grouping segments...`);
+  // Phase 2: Group words by source
+  console.log(`[pipeline] Phase 2: Grouping words...`);
   onProgress?.({
     current: 1,
     total: 2,
-    message: "Grouping segments...",
+    message: "Grouping words...",
   });
 
-  const segmentsBySource = new Map<string, Segment[]>();
-  for (const seg of allSegments) {
-    if (!seg.text) continue;
-    const sourceId = seg.text.sourceId;
-    if (!segmentsBySource.has(sourceId)) {
-      segmentsBySource.set(sourceId, []);
+  const wordsBySource = new Map<string, Word[]>();
+  for (const word of allWords) {
+    if (!wordsBySource.has(word.sourceId)) {
+      wordsBySource.set(word.sourceId, []);
     }
-    segmentsBySource.get(sourceId)!.push(seg);
+    wordsBySource.get(word.sourceId)!.push(word);
   }
 
-  console.log(`[pipeline] Phase 2: ${segmentsBySource.size} source(s) with text segments`);
+  console.log(`[pipeline] Phase 2: ${wordsBySource.size} source(s) with words`);
 
   let groupOffset = 0;
-  for (const [sourceId, segments] of segmentsBySource) {
-    const groups = groupSegments(segments, sourceId);
-    console.log(`[pipeline] Phase 2: Source ${sourceId} → ${groups.length} groups from ${segments.length} segments`);
+  for (const [sourceId, words] of wordsBySource) {
+    const groups = groupWords(words, sourceId);
+    console.log(`[pipeline] Phase 2: Source ${sourceId} → ${groups.length} groups from ${words.length} words`);
     // Offset group IDs to be globally unique
     const prefixedGroups = groups.map((g, idx) => ({
       ...g,
@@ -173,27 +167,21 @@ export async function runPipeline(
     groupOffset += groups.length;
   }
 
-  // Create groups for sources with video-only segments (no speech)
-  for (const source of sources) {
-    const hasGroup = allGroups.some((g) => g.sourceId === source.id);
-    if (!hasGroup) {
-      const videoSegments = allSegments.filter((s) => s.video?.sourceId === source.id);
-      if (videoSegments.length > 0) {
-        const seg = videoSegments[0];
-        const group: SegmentGroup = {
-          groupId: `group-${groupOffset}`,
-          sourceId: source.id,
-          segmentIds: [seg.id],
-          text: "",
-          startTime: seg.video!.start,
-          endTime: seg.video!.end,
-          avgConfidence: 0,
-        };
-        allGroups.push(group);
-        groupOffset++;
-        console.log(`[pipeline] Phase 2: Created video-only group for "${source.name}" (${seg.video!.start}s-${seg.video!.end}s)`);
-      }
-    }
+  // Create groups for sources with no speech (video-only)
+  for (const { sourceId, duration } of sourcesWithNoSpeech) {
+    const source = sources.find((s) => s.id === sourceId);
+    const group: SegmentGroup = {
+      groupId: `group-${groupOffset}`,
+      sourceId,
+      segmentIds: [],
+      text: "",
+      startTime: 0,
+      endTime: duration,
+      avgConfidence: 0,
+    };
+    allGroups.push(group);
+    groupOffset++;
+    console.log(`[pipeline] Phase 2: Created video-only group for "${source?.name}" (0s-${duration}s)`);
   }
 
   console.log(`[pipeline] Phase 2 COMPLETE: ${allGroups.length} total groups`);
@@ -293,15 +281,31 @@ export async function runPipeline(
     orderedGroupIds = allGroups.map((g) => g.groupId);
   }
 
+  // Generate sentences by splitting words on sentence boundaries
+  const sentenceGroups = groupWordsForAssembly(allWords);
+  const sentences: Sentence[] = sentenceGroups.map((g, idx) => ({
+    sentenceId: `sentence-${idx}`,
+    sourceId: g.sourceId,
+    wordIds: g.segmentIds, // segmentIds are actually word IDs
+    text: g.text,
+    startTime: g.startTime,
+    endTime: g.endTime,
+    originalGroupId: g.groupId,
+  }));
+
+  const transcriptlessSourceIds = sourcesWithNoSpeech.map((s) => s.sourceId);
+
   console.log(`[pipeline] ===== PIPELINE COMPLETE =====`);
-  console.log(`[pipeline] Result: ${allSegments.length} segments, ${allGroups.length} groups, ${orderedGroupIds.length} ordered IDs`);
-  console.log(`[pipeline] Final segments:`, JSON.stringify(allSegments, null, 2));
+  console.log(`[pipeline] Result: ${allWords.length} words, ${allGroups.length} groups, ${sentences.length} sentences, ${orderedGroupIds.length} ordered IDs`);
+  console.log(`[pipeline] Final words:`, JSON.stringify(allWords, null, 2));
   console.log(`[pipeline] Final groups:`, JSON.stringify(allGroups, null, 2));
   console.log(`[pipeline] Ordered IDs:`, JSON.stringify(orderedGroupIds));
 
   return {
-    segments: allSegments,
+    words: allWords,
     segmentGroups: allGroups,
     orderedGroupIds,
+    sentences,
+    transcriptlessSourceIds,
   };
 }

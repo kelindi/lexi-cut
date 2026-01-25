@@ -2,53 +2,135 @@ import { useMemo } from "react";
 import { useProjectStore } from "../stores/useProjectStore";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { secondsToFrames } from "../stores/usePlaybackStore";
-import type { TimelineSegment } from "../types";
+import type { Segment } from "../types";
 
 /**
- * Computes timeline segments from active (non-excluded) segment groups
- * Each segment includes frame positions for Remotion and source paths for video loading
+ * Computes timeline segments at the WORD level.
+ *
+ * - Iterates through sentences in display order
+ * - For each sentence, processes individual words
+ * - Skips excluded sentences AND excluded words
+ * - Merges adjacent words into continuous video segments
+ * - Creates cuts when words are excluded or reordered
  */
-export function useTimelineSegments(): TimelineSegment[] {
-  const orderedGroupIds = useProjectStore((s) => s.orderedGroupIds);
-  const excludedGroupIds = useProjectStore((s) => s.excludedGroupIds);
-  const segmentGroups = useProjectStore((s) => s.segmentGroups);
+export function useTimelineSegments(): Segment[] {
+  const orderedSentenceIds = useProjectStore((s) => s.orderedSentenceIds);
+  const excludedSentenceIds = useProjectStore((s) => s.excludedSentenceIds);
+  const excludedWordIds = useProjectStore((s) => s.excludedWordIds);
+  const sentences = useProjectStore((s) => s.sentences);
+  const words = useProjectStore((s) => s.words);
   const sources = useSourcesStore((s) => s.sources);
 
   return useMemo(() => {
-    const excluded = new Set(excludedGroupIds);
+    const excludedSentences = new Set(excludedSentenceIds);
+    const excludedWords = new Set(excludedWordIds);
     const sourceMap = new Map(sources.map((s) => [s.id, s]));
+    const sentenceMap = new Map(sentences.map((s) => [s.sentenceId, s]));
+    const wordMap = new Map(words.map((w) => [w.id, w]));
 
-    let currentFrame = 0;
-    const segments: TimelineSegment[] = [];
+    // First pass: collect all included words with their timing
+    const includedWords: Array<{
+      sentenceId: string;
+      sourceId: string;
+      sourcePath: string;
+      start: number;
+      end: number;
+      text: string;
+    }> = [];
 
-    for (const groupId of orderedGroupIds) {
-      if (excluded.has(groupId)) continue;
+    for (const sentenceId of orderedSentenceIds) {
+      if (excludedSentences.has(sentenceId)) continue;
 
-      const group = segmentGroups.find((g) => g.groupId === groupId);
-      if (!group) continue;
+      const sentence = sentenceMap.get(sentenceId);
+      if (!sentence) continue;
 
-      const source = sourceMap.get(group.sourceId);
+      const source = sourceMap.get(sentence.sourceId);
       if (!source) continue;
 
-      const durationSeconds = group.endTime - group.startTime;
-      const durationFrames = secondsToFrames(durationSeconds);
+      // Handle transcriptless sentences (no words) - use sentence times directly
+      if (sentence.wordIds.length === 0) {
+        includedWords.push({
+          sentenceId,
+          sourceId: sentence.sourceId,
+          sourcePath: source.path,
+          start: sentence.startTime,
+          end: sentence.endTime,
+          text: sentence.text,
+        });
+        continue;
+      }
 
-      segments.push({
-        groupId: group.groupId,
-        sourceId: group.sourceId,
-        sourcePath: source.path,
-        sourceStart: group.startTime,
-        sourceEnd: group.endTime,
-        startFrame: currentFrame,
-        durationFrames,
-        text: group.text,
-      });
+      for (const wordId of sentence.wordIds) {
+        // Skip excluded words
+        if (excludedWords.has(wordId)) continue;
 
-      currentFrame += durationFrames;
+        const word = wordMap.get(wordId);
+        if (!word) continue;
+
+        includedWords.push({
+          sentenceId,
+          sourceId: sentence.sourceId,
+          sourcePath: source.path,
+          start: word.start,
+          end: word.end,
+          text: word.word,
+        });
+      }
+    }
+
+    // Second pass: merge consecutive words from same source
+    // Only merge if words are truly adjacent (no excluded words between them)
+    const segments: Segment[] = [];
+    const ADJACENCY_TOLERANCE = 0.1; // 100ms
+    let segmentIndex = 0;
+
+    for (let i = 0; i < includedWords.length; i++) {
+      const word = includedWords[i];
+      const lastSeg = segments[segments.length - 1];
+      const prevWord = i > 0 ? includedWords[i - 1] : null;
+
+      // Can merge if:
+      // 1. Same source as previous segment
+      // 2. This word immediately follows the previous word (in timeline order)
+      // 3. The words are temporally adjacent in the source
+      const canMerge =
+        lastSeg &&
+        prevWord &&
+        lastSeg.sourceId === word.sourceId &&
+        Math.abs(word.start - prevWord.end) < ADJACENCY_TOLERANCE;
+
+      if (canMerge) {
+        lastSeg.sourceEnd = word.end;
+        lastSeg.durationFrames = secondsToFrames(lastSeg.sourceEnd - lastSeg.sourceStart);
+        lastSeg.text += " " + word.text;
+        if (!lastSeg.sentenceIds.includes(word.sentenceId)) {
+          lastSeg.sentenceIds.push(word.sentenceId);
+        }
+      } else {
+        const currentFrame =
+          segments.length > 0
+            ? segments[segments.length - 1].startFrame +
+              segments[segments.length - 1].durationFrames
+            : 0;
+
+        const durationFrames = secondsToFrames(word.end - word.start);
+
+        segments.push({
+          id: `segment-${segmentIndex++}`,
+          sentenceIds: [word.sentenceId],
+          sourceId: word.sourceId,
+          sourcePath: word.sourcePath,
+          sourceStart: word.start,
+          sourceEnd: word.end,
+          startFrame: currentFrame,
+          durationFrames,
+          text: word.text,
+        });
+      }
     }
 
     return segments;
-  }, [orderedGroupIds, excludedGroupIds, segmentGroups, sources]);
+  }, [orderedSentenceIds, excludedSentenceIds, excludedWordIds, sentences, words, sources]);
 }
 
 /**
@@ -66,7 +148,7 @@ export function useTotalDuration(): number {
 /**
  * Find which segment contains a given frame
  */
-export function useSegmentAtFrame(frame: number): TimelineSegment | null {
+export function useSegmentAtFrame(frame: number): Segment | null {
   const segments = useTimelineSegments();
   return useMemo(() => {
     for (const seg of segments) {

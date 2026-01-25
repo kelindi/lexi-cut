@@ -54,3 +54,29 @@ fn encode_image_to_data_uri(path: &str) -> Result<String, String> {
     let base64_data = STANDARD.encode(&image_data);
     Ok(format!("data:image/jpeg;base64,{}", base64_data))
 }
+
+/// Extract video duration in seconds using ffprobe
+pub fn get_video_duration(video_path: &Path) -> Result<f64, String> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            &video_path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let duration_str = String::from_utf8_lossy(&output.stdout);
+    duration_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|e| format!("Failed to parse duration '{}': {}", duration_str.trim(), e))
+}

@@ -1,5 +1,5 @@
 import { fetch } from "@tauri-apps/plugin-http";
-import type { ElevenLabsTranscriptResponse, Segment } from "../types";
+import type { ElevenLabsTranscriptResponse, Word } from "../types";
 import { getCachedTranscription, setCachedTranscription } from "./cache";
 
 const API_URL = "https://api.elevenlabs.io/v1/speech-to-text";
@@ -61,25 +61,18 @@ export async function transcribeFile(file: File, cid?: string): Promise<ElevenLa
   return result;
 }
 
-export function mapTranscriptToSegments(
+export function mapTranscriptToWords(
   response: ElevenLabsTranscriptResponse,
   sourceId: string
-): Segment[] {
+): Word[] {
   return response.words
     .filter((w) => w.type === "word")
     .map((word, index) => ({
-      id: `seg-${sourceId}-${index}`,
-      text: {
-        word: word.text,
-        confidence: word.logprob !== undefined ? Math.exp(word.logprob) : 1,
-        sourceId,
-        start: word.start,
-        end: word.end,
-      },
-      video: {
-        sourceId,
-        start: word.start,
-        end: word.end,
-      },
+      id: `word-${sourceId}-${index}`,
+      word: word.text,
+      confidence: word.logprob !== undefined ? Math.exp(word.logprob) : 1,
+      sourceId,
+      start: word.start,
+      end: word.end,
     }));
 }

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { DotsSixVertical, X } from "@phosphor-icons/react";
-import type { Segment, SegmentGroup } from "../../types";
+import type { Word, SegmentGroup } from "../../types";
 import { formatTime } from "../../stores/usePlaybackStore";
 
 interface WordWithTimestamp {
@@ -18,23 +18,24 @@ interface SentenceWithTimestamp {
 
 interface BlockProps {
   group: SegmentGroup;
-  segments: Segment[];
+  words: Word[];
   isSelected: boolean;
   currentSourceTime: number | null; // null if this block isn't playing
   onSelect: () => void;
   onDelete: () => void;
-  onTextChange: (text: string) => void;
   onWordClick: (sourceTime: number) => void;
 }
 
+/**
+ * @deprecated Use SentenceItem instead for sentence-level reordering
+ */
 export function Block({
   group,
-  segments,
+  words: wordsList,
   isSelected,
   currentSourceTime,
   onSelect,
   onDelete,
-  onTextChange,
   onWordClick,
 }: BlockProps) {
   const {
@@ -54,14 +55,14 @@ export function Block({
     opacity: isDragging ? 0.5 : 1,
   };
 
-  // Build sentences with word-level timestamps from individual segments
+  // Build sentences with word-level timestamps from individual words
   const sentences = useMemo((): SentenceWithTimestamp[] => {
-    // Get segments for this group in order
-    const groupSegments = group.segmentIds
-      .map((id) => segments.find((s) => s.id === id))
-      .filter((s): s is Segment => s !== undefined && s.text !== undefined);
+    // Get words for this group in order (segmentIds holds word IDs)
+    const groupWords = group.segmentIds
+      .map((id) => wordsList.find((w) => w.id === id))
+      .filter((w): w is Word => w !== undefined);
 
-    if (groupSegments.length === 0) {
+    if (groupWords.length === 0) {
       // Fallback: single sentence with group timestamp
       return [{
         words: [{ word: group.text, start: group.startTime, end: group.endTime }],
@@ -73,22 +74,21 @@ export function Block({
     let currentWords: WordWithTimestamp[] = [];
     let sentenceStartTime: number | null = null;
 
-    for (const seg of groupSegments) {
-      const text = seg.text!;
+    for (const w of groupWords) {
       const wordData: WordWithTimestamp = {
-        word: text.word,
-        start: text.start,
-        end: text.end,
+        word: w.word,
+        start: w.start,
+        end: w.end,
       };
 
       if (sentenceStartTime === null) {
-        sentenceStartTime = text.start;
+        sentenceStartTime = w.start;
       }
 
       currentWords.push(wordData);
 
       // Check if this word ends a sentence
-      if (/[.!?]$/.test(text.word.trim())) {
+      if (/[.!?]$/.test(w.word.trim())) {
         result.push({
           words: currentWords,
           startTime: sentenceStartTime,
@@ -112,7 +112,7 @@ export function Block({
           words: [{ word: group.text, start: group.startTime, end: group.endTime }],
           startTime: group.startTime,
         }];
-  }, [group, segments]);
+  }, [group, wordsList]);
 
   // Check if a word is currently being spoken
   const isWordActive = (word: WordWithTimestamp): boolean => {
