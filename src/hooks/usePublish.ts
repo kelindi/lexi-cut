@@ -3,22 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { tempDir } from "@tauri-apps/api/path";
 import { useTimelineSegments } from "./useTimelineSegments";
-import { uploadMedia, createPost, type SupportedPlatform } from "../api/late";
+import { createPost, getApiKey, type SupportedPlatform, type PlatformTarget, type Account } from "../api/late";
 
-/**
- * Load a file from Tauri filesystem to browser File object
- */
-async function loadVideoAsFile(path: string): Promise<File> {
-  const name = path.split("/").pop() || "export.mp4";
-  const base64Data = await invoke<string>("read_file_base64", { path });
-
-  const binaryString = atob(base64Data);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-
-  return new File([bytes], name, { type: "video/mp4" });
+interface MediaUploadResult {
+  url: string;
+  mimeType: string;
+  size: number;
 }
 
 export type PublishPhase =
@@ -36,8 +26,8 @@ export interface PublishProgress {
 }
 
 export interface PublishOptions {
-  profileId: string;
   platforms: SupportedPlatform[];
+  accounts: Account[];
   caption: string;
 }
 
@@ -131,9 +121,12 @@ export function usePublish() {
           message: "Uploading video to Late...",
         });
 
-        // Step 2: Read the exported file and upload to Late
-        const file = await loadVideoAsFile(outputPath);
-        const mediaUpload = await uploadMedia(file);
+        // Step 2: Upload to Late via Rust (bypasses Tauri HTTP plugin FormData issues)
+        const apiKey = getApiKey();
+        const mediaUpload = await invoke<MediaUploadResult>("upload_to_late", {
+          filePath: outputPath,
+          apiKey,
+        });
 
         setProgress({
           phase: "uploading",
@@ -148,19 +141,32 @@ export function usePublish() {
           message: `Publishing to ${options.platforms.length} platform${options.platforms.length > 1 ? "s" : ""}...`,
         });
 
+        // Map selected platforms to account IDs
+        const platformTargets: PlatformTarget[] = options.platforms
+          .map((platform) => {
+            const account = options.accounts.find((a) => a.platform === platform);
+            if (!account) return null;
+            return { platform: platform as string, accountId: account._id };
+          })
+          .filter((p): p is NonNullable<typeof p> => p !== null);
+
+        if (platformTargets.length === 0) {
+          throw new Error("No matching accounts found for selected platforms");
+        }
+
         const postResult = await createPost({
-          profileId: options.profileId,
-          platforms: options.platforms,
-          mediaId: mediaUpload._id,
-          caption: options.caption,
+          platforms: platformTargets,
+          mediaUrl: mediaUpload.url,
+          content: options.caption,
         });
 
-        // Build result
+        // Build result - response is wrapped in a 'post' object
+        const platforms = postResult.post?.platforms || [];
         const publishResult: PublishResult = {
-          success: postResult.platforms.every((p) => p.status === "success"),
-          platforms: postResult.platforms.map((p) => ({
+          success: platforms.length > 0 && platforms.every((p) => p.status !== "failed"),
+          platforms: platforms.map((p) => ({
             platform: p.platform,
-            success: p.status === "success",
+            success: p.status !== "failed",
             error: p.error,
           })),
         };

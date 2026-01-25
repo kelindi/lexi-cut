@@ -25,26 +25,35 @@ export interface MediaUpload {
   size: number;
 }
 
-export interface PostResult {
-  _id: string;
+export interface PostPlatformResult {
+  platform: string;
   status: string;
-  platforms: Array<{
-    platform: string;
+  platformPostUrl?: string;
+  error?: string;
+}
+
+export interface PostResult {
+  post: {
+    _id: string;
     status: string;
-    postId?: string;
-    error?: string;
-  }>;
+    platforms: PostPlatformResult[];
+  };
+  message?: string;
+}
+
+export interface PlatformTarget {
+  platform: string;
+  accountId: string;
 }
 
 export interface PostOptions {
-  profileId: string;
-  platforms: string[];
-  mediaId: string;
-  caption?: string;
+  platforms: PlatformTarget[];
+  mediaUrl: string;
+  content?: string;
   scheduledFor?: string;
 }
 
-function getApiKey(): string {
+export function getApiKey(): string {
   const key = import.meta.env.VITE_LATE_API_KEY;
   if (!key) {
     throw new Error("Missing VITE_LATE_API_KEY in environment variables");
@@ -134,11 +143,11 @@ export async function createPost(options: PostOptions): Promise<PostResult> {
   const data = await lateRequest<PostResult>("/posts", {
     method: "POST",
     body: JSON.stringify({
-      profileId: options.profileId,
       platforms: options.platforms,
-      media: [options.mediaId],
-      caption: options.caption,
+      mediaItems: [{ type: "video", url: options.mediaUrl }],
+      content: options.content,
       scheduledFor: options.scheduledFor,
+      publishNow: !options.scheduledFor,
     }),
   });
 

@@ -22,7 +22,7 @@ interface Account {
 
 export function LateTest() {
   const [status, setStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
-  const [result, setResult] = useState<unknown>(null);
+  const [result, setResult] = useState<object | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);

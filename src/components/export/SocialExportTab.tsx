@@ -206,11 +206,11 @@ export function SocialExportTab({ onClose }: SocialExportTabProps) {
   };
 
   const handlePublish = async () => {
-    if (!selectedProfileId) return;
+    if (accounts.length === 0) return;
 
     await publish({
-      profileId: selectedProfileId,
       platforms: Array.from(selectedPlatforms),
+      accounts,
       caption,
     });
   };
