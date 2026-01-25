@@ -290,5 +290,9 @@ Rules:
 
   const parsed = JSON.parse(text) as SourceDescriptionResult[];
   console.log(`[gemini] describeFrames: Parsed ${parsed.length} time-ranged descriptions`);
+  console.log(`[gemini] describeFrames: Descriptions:`);
+  for (const desc of parsed) {
+    console.log(`  [${desc.start}s - ${desc.end}s] ${desc.description}`);
+  }
   return parsed;
 }
