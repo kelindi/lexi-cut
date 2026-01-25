@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { Dialog } from "@base-ui-components/react/dialog";
-import { X } from "@phosphor-icons/react";
-import { LocalExportTab } from "./LocalExportTab";
+import { X, Check } from "@phosphor-icons/react";
+import { LocalExportTab, type ExportSettings } from "./LocalExportTab";
 import { SocialExportTab } from "./SocialExportTab";
 
-type Tab = "local" | "social";
+type Step = "encoding" | "social";
 
 interface ExportDialogProps {
   open: boolean;
@@ -12,7 +12,26 @@ interface ExportDialogProps {
 }
 
 export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("local");
+  const [step, setStep] = useState<Step>("encoding");
+  const [exportSettings, setExportSettings] = useState<ExportSettings>({
+    preset: "fast",
+    resolution: "original",
+  });
+
+  const handleClose = () => {
+    onOpenChange(false);
+    // Reset to first step when closing
+    setTimeout(() => setStep("encoding"), 200);
+  };
+
+  const handleProceedToSocial = (settings: ExportSettings) => {
+    setExportSettings(settings);
+    setStep("social");
+  };
+
+  const handleBack = () => {
+    setStep("encoding");
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -29,36 +48,62 @@ export function ExportDialog({ open, onOpenChange }: ExportDialogProps) {
             </Dialog.Close>
           </div>
 
-          {/* Tab Navigation */}
-          <div className="flex border-b border-white/10">
-            <button
-              onClick={() => setActiveTab("local")}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === "local"
-                  ? "border-b-2 border-white text-white"
-                  : "text-white/50 hover:text-white"
-              }`}
-            >
-              Local
-            </button>
-            <button
-              onClick={() => setActiveTab("social")}
-              className={`flex-1 px-4 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === "social"
-                  ? "border-b-2 border-white text-white"
-                  : "text-white/50 hover:text-white"
-              }`}
-            >
-              Social Media
-            </button>
+          {/* Step Indicator */}
+          <div className="flex items-center gap-3 border-b border-white/10 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                  step === "encoding"
+                    ? "bg-white text-black"
+                    : "bg-green-500 text-white"
+                }`}
+              >
+                {step === "encoding" ? "1" : <Check size={12} weight="bold" />}
+              </div>
+              <span
+                className={`text-sm ${
+                  step === "encoding" ? "font-medium text-white" : "text-white/50"
+                }`}
+              >
+                Encoding
+              </span>
+            </div>
+            <div className="h-px flex-1 bg-white/10" />
+            <div className="flex items-center gap-2">
+              <div
+                className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
+                  step === "social"
+                    ? "bg-white text-black"
+                    : "bg-white/10 text-white/50"
+                }`}
+              >
+                2
+              </div>
+              <span
+                className={`text-sm ${
+                  step === "social" ? "font-medium text-white" : "text-white/50"
+                }`}
+              >
+                Social Media
+              </span>
+            </div>
           </div>
 
-          {/* Tab Content */}
+          {/* Step Content */}
           <div className="p-4">
-            {activeTab === "local" ? (
-              <LocalExportTab onClose={() => onOpenChange(false)} />
+            {step === "encoding" ? (
+              <LocalExportTab
+                onClose={handleClose}
+                onProceedToSocial={handleProceedToSocial}
+                initialPreset={exportSettings.preset}
+                initialResolution={exportSettings.resolution}
+              />
             ) : (
-              <SocialExportTab onClose={() => onOpenChange(false)} />
+              <SocialExportTab
+                onClose={handleClose}
+                onBack={handleBack}
+                exportSettings={exportSettings}
+              />
             )}
           </div>
         </Dialog.Popup>

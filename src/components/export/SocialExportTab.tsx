@@ -7,13 +7,17 @@ import {
   ArrowsClockwise,
   PaperPlaneTilt,
   XCircle,
+  ArrowLeft,
 } from "@phosphor-icons/react";
 import { useSocialStore } from "../../stores/useSocialStore";
 import { usePublish, type PublishPhase } from "../../hooks/usePublish";
 import { SUPPORTED_PLATFORMS, hasApiKey, type SupportedPlatform } from "../../api/late";
+import type { ExportSettings } from "./LocalExportTab";
 
 interface SocialExportTabProps {
   onClose: () => void;
+  onBack?: () => void;
+  exportSettings?: ExportSettings;
 }
 
 function PlatformIcon({ platform }: { platform: string }) {
@@ -141,7 +145,7 @@ function getPhaseMessage(phase: PublishPhase): string {
   }
 }
 
-export function SocialExportTab({ onClose }: SocialExportTabProps) {
+export function SocialExportTab({ onClose, onBack, exportSettings }: SocialExportTabProps) {
   const {
     profiles,
     accounts,
@@ -456,20 +460,28 @@ export function SocialExportTab({ onClose }: SocialExportTabProps) {
 
       {/* Publish button */}
       {accounts.length > 0 && (
-        <button
-          onClick={handlePublish}
-          disabled={
-            !canPublish ||
-            selectedPlatforms.size === 0 ||
-            !selectedProfileId ||
-            isPublishing
-          }
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <PaperPlaneTilt size={16} weight="fill" />
-          Publish to {selectedPlatforms.size} Platform
-          {selectedPlatforms.size !== 1 ? "s" : ""}
-        </button>
+        <div className="flex flex-col gap-1.5">
+          <button
+            onClick={handlePublish}
+            disabled={
+              !canPublish ||
+              selectedPlatforms.size === 0 ||
+              !selectedProfileId ||
+              isPublishing ||
+              caption.trim().length === 0
+            }
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <PaperPlaneTilt size={16} weight="fill" />
+            Publish to {selectedPlatforms.size} Platform
+            {selectedPlatforms.size !== 1 ? "s" : ""}
+          </button>
+          {caption.trim().length === 0 && selectedPlatforms.size > 0 && (
+            <p className="text-center text-xs text-yellow-400">
+              Caption is required to publish
+            </p>
+          )}
+        </div>
       )}
 
       {/* No connected accounts message */}
@@ -479,13 +491,24 @@ export function SocialExportTab({ onClose }: SocialExportTabProps) {
         </div>
       )}
 
-      {/* Close button */}
-      <button
-        onClick={onClose}
-        className="w-full rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
-      >
-        Close
-      </button>
+      {/* Back / Close buttons */}
+      <div className="flex gap-2">
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5"
+          >
+            <ArrowLeft size={14} />
+            Back
+          </button>
+        )}
+        <button
+          onClick={onClose}
+          className={`rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-white/5 ${onBack ? "flex-1" : "w-full"}`}
+        >
+          Close
+        </button>
+      </div>
     </div>
   );
 }
