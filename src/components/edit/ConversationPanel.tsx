@@ -75,7 +75,7 @@ export function ConversationPanel() {
       actions: [],
     };
 
-    setMessages((prev) => [streamingMessage, userMessage, ...prev]);
+    setMessages((prev) => [...prev, userMessage, streamingMessage]);
     setInputValue("");
     setIsProcessing(true);
 
@@ -196,8 +196,32 @@ export function ConversationPanel() {
 
   return (
     <div className="h-full flex flex-col bg-neutral-900">
-      {/* Input area at top */}
-      <div className="shrink-0 p-3 border-b border-neutral-800">
+      {/* Conversation/action list */}
+      <div className="flex-1 overflow-y-auto flex flex-col-reverse">
+        {messages.length === 0 ? (
+          <div className="p-4 text-center text-neutral-500 text-sm mt-auto">
+            Your edits will appear here
+          </div>
+        ) : (
+          <div className="divide-y divide-neutral-800 mt-auto">
+            {messages.map((message) => (
+              <MessageRow
+                key={message.id}
+                message={message}
+                activeActions={getActiveActions(message.actions)}
+                onRemove={() => handleRemoveMessage(message)}
+                onUndoAction={(actionId, commandId) =>
+                  handleUndoSingleAction(message.id, actionId, commandId)
+                }
+                onUndoAll={() => handleUndoAllActions(message)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Input area at bottom */}
+      <div className="shrink-0 p-3 border-t border-neutral-800">
         {/* Suggestion chips */}
         <div className="flex flex-wrap gap-1.5 mb-2">
           {SUGGESTIONS.map((s) => (
@@ -236,30 +260,6 @@ export function ConversationPanel() {
             <ArrowClockwise size={16} className={isProcessing ? "animate-spin" : ""} />
           </button>
         </div>
-      </div>
-
-      {/* Conversation/action list */}
-      <div className="flex-1 overflow-y-auto">
-        {messages.length === 0 ? (
-          <div className="p-4 text-center text-neutral-500 text-sm">
-            Your edits will appear here
-          </div>
-        ) : (
-          <div className="divide-y divide-neutral-800">
-            {messages.map((message) => (
-              <MessageRow
-                key={message.id}
-                message={message}
-                activeActions={getActiveActions(message.actions)}
-                onRemove={() => handleRemoveMessage(message)}
-                onUndoAction={(actionId, commandId) =>
-                  handleUndoSingleAction(message.id, actionId, commandId)
-                }
-                onUndoAll={() => handleUndoAllActions(message)}
-              />
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
