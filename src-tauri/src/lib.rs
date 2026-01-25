@@ -2,8 +2,8 @@ mod commands;
 mod services;
 
 use commands::{
-    export_video, generate_cid, generate_thumbnail, get_cached, get_duration, read_file_base64,
-    set_cached,
+    export_video, generate_cid, generate_thumbnail, get_cached, get_duration, load_projects,
+    read_file_base64, save_projects, set_cached,
 };
 use services::CacheDb;
 use tauri::Manager;
@@ -34,7 +34,9 @@ pub fn run() {
             export_video,
             read_file_base64,
             get_cached,
-            set_cached
+            set_cached,
+            load_projects,
+            save_projects
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

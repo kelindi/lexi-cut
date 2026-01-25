@@ -1,3 +1,13 @@
+// --- Project Metadata (for project list) ---
+
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt?: number;
+  thumbnail?: string;
+}
+
 // --- Source (media file) ---
 
 export interface SourceDescription {
