@@ -8,6 +8,7 @@ import {
   PaperPlaneTilt,
   XCircle,
   ArrowLeft,
+  X,
 } from "@phosphor-icons/react";
 import { useSocialStore } from "../../stores/useSocialStore";
 import { usePublish, type PublishPhase } from "../../hooks/usePublish";
@@ -63,7 +64,9 @@ interface PlatformCardProps {
   isConnected: boolean;
   isSelected: boolean;
   isConnecting: boolean;
+  isDisconnecting: boolean;
   onConnect: () => void;
+  onDisconnect: () => void;
   onToggle: () => void;
   disabled?: boolean;
 }
@@ -73,7 +76,9 @@ function PlatformCard({
   isConnected,
   isSelected,
   isConnecting,
+  isDisconnecting,
   onConnect,
+  onDisconnect,
   onToggle,
   disabled,
 }: PlatformCardProps) {
@@ -109,7 +114,18 @@ function PlatformCard({
       </div>
 
       {isConnected ? (
-        <CheckCircle size={20} weight="fill" className="text-green-500" />
+        <button
+          onClick={onDisconnect}
+          disabled={isDisconnecting || disabled}
+          className="flex items-center gap-1 rounded-md p-1.5 text-white/40 transition-colors hover:bg-red-500/20 hover:text-red-400 disabled:opacity-50"
+          title="Disconnect account"
+        >
+          {isDisconnecting ? (
+            <CircleNotch size={16} className="animate-spin" />
+          ) : (
+            <X size={16} />
+          )}
+        </button>
       ) : (
         <button
           onClick={onConnect}
@@ -157,8 +173,11 @@ export function SocialExportTab({ onClose, onBack, exportSettings }: SocialExpor
     fetchAccounts,
     selectProfile,
     connect,
+    disconnect,
     clearError,
   } = useSocialStore();
+
+  const [disconnectingPlatform, setDisconnectingPlatform] = useState<string | null>(null);
 
   const {
     publish,
@@ -185,6 +204,19 @@ export function SocialExportTab({ onClose, onBack, exportSettings }: SocialExpor
     }
   }, [apiKeyConfigured, fetchProfiles, fetchAccounts]);
 
+  // Listen for OAuth success messages from popup windows
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === "oauth-success") {
+        // Refresh accounts to show the newly connected account
+        fetchAccounts();
+      }
+    };
+
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [fetchAccounts]);
+
   // Auto-select all connected platforms initially
   useEffect(() => {
     if (accounts.length > 0 && selectedPlatforms.size === 0) {
@@ -207,6 +239,24 @@ export function SocialExportTab({ onClose, onBack, exportSettings }: SocialExpor
       }
       return next;
     });
+  };
+
+  const handleDisconnect = async (platform: string) => {
+    const account = accounts.find((a) => a.platform === platform);
+    if (!account) return;
+
+    setDisconnectingPlatform(platform);
+    try {
+      await disconnect(account._id);
+      // Remove from selected platforms
+      setSelectedPlatforms((prev) => {
+        const next = new Set(prev);
+        next.delete(platform as SupportedPlatform);
+        return next;
+      });
+    } finally {
+      setDisconnectingPlatform(null);
+    }
   };
 
   const handlePublish = async () => {
@@ -414,7 +464,9 @@ export function SocialExportTab({ onClose, onBack, exportSettings }: SocialExpor
             isConnected={connectedPlatforms.has(platform.id)}
             isSelected={selectedPlatforms.has(platform.id as SupportedPlatform)}
             isConnecting={isConnecting}
+            isDisconnecting={disconnectingPlatform === platform.id}
             onConnect={() => connect(platform.id as SupportedPlatform)}
+            onDisconnect={() => handleDisconnect(platform.id)}
             onToggle={() => togglePlatform(platform.id as SupportedPlatform)}
           />
         ))}

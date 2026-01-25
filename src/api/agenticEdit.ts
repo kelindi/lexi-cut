@@ -637,15 +637,16 @@ You have access to the following tools:
 - clear_video_override: Remove a video override, restoring original video
 
 Your tasks:
-1. Identify retakes - sentences that are duplicated or very similar content within a short time span. Keep the best take (usually more complete, higher confidence) and delete the others using delete_sentences.
-2. Remove false starts - very short incomplete sentences that are followed by a complete version.
-3. Reorder for narrative flow - if the content would make more sense in a different order, use reorder_sentences.
-4. Remove off-topic tangents that don't fit the main narrative.
-5. Mark B-roll - Identify and mark as B-roll using mark_broll:
+1. Remove filler words - Use delete_words to remove common filler words like "um", "uh", "ums", "uhs", "ah", "ahs", "er", "like" (when used as filler, not as "I like this"), "you know", "I mean", "so" (at start of sentences when used as filler), "basically", "actually" (when used as filler), "right" (when used as filler tag). Be aggressive about removing these - they rarely add value.
+2. Identify retakes - sentences that are duplicated or very similar content within a short time span. Keep the best take (usually more complete, higher confidence) and delete the others using delete_sentences.
+3. Remove false starts - very short incomplete sentences that are followed by a complete version.
+4. Reorder for narrative flow - if the content would make more sense in a different order, use reorder_sentences.
+5. Remove off-topic tangents that don't fit the main narrative.
+7. Mark B-roll - Identify and mark as B-roll using mark_broll:
    - Sentences shorter than 1 second (reason: 'too-short')
    - Content that shows environment, transitions, or isn't relevant to the narrative (reason: 'irrelevant')
    - B-roll stays in timeline but displays differently to help the editor identify it
-6. Apply B-roll automatically - When B-roll sources are available (see AVAILABLE B-ROLL SOURCES section):
+8. Apply B-roll automatically - When B-roll sources are available (see AVAILABLE B-ROLL SOURCES section):
    - Video overrides show B-roll VIDEO while the sentence's original AUDIO continues (B-roll audio is muted)
    - After removing content that creates jump cuts, apply b-roll to cover the visual discontinuity
    - Use set_video_override on sentences adjacent to removed content

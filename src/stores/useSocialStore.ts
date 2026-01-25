@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
   getProfiles,
   getAccounts,
@@ -92,8 +93,9 @@ export const useSocialStore = create<SocialState>()(
         set({ isConnecting: true, error: null });
         try {
           const authUrl = await connectPlatform(platform, selectedProfileId);
-          // Open OAuth window
-          window.open(authUrl, "_blank", "width=600,height=700");
+          // Open in system browser using Tauri's opener plugin
+          // This avoids issues with Tauri's internal webview for OAuth flows
+          await openUrl(authUrl);
           set({ isConnecting: false });
         } catch (err) {
           set({
