@@ -80,6 +80,37 @@ async function loadFileFromPath(path: string, name: string): Promise<File> {
 }
 
 /**
+ * Extract a short clip from a video for Gemini analysis.
+ * Uses FFmpeg to extract the first N seconds and convert to MP4 (H.264).
+ * This avoids uploading large files and ensures codec compatibility.
+ */
+const GEMINI_CLIP_DURATION = 5; // seconds
+
+async function loadClipForGemini(path: string, name: string): Promise<File> {
+  console.log(`[pipeline] Extracting ${GEMINI_CLIP_DURATION}s clip from "${name}" for Gemini...`);
+
+  // Extract clip using FFmpeg (returns base64-encoded MP4)
+  const base64Data = await invoke<string>("extract_clip_base64", {
+    path,
+    durationSeconds: GEMINI_CLIP_DURATION,
+  });
+
+  // Decode base64 to binary
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+
+  const sizeMB = bytes.length / 1024 / 1024;
+  console.log(`[pipeline] Extracted clip: ${sizeMB.toFixed(2)}MB (MP4/H.264)`);
+
+  // Always MP4 since we convert with FFmpeg
+  const clipName = name.replace(/\.[^.]+$/, "_clip.mp4");
+  return new File([bytes], clipName, { type: "video/mp4" });
+}
+
+/**
  * Run the full processing pipeline:
  * 1. Transcribe each source → segments
  * 2. Group segments into SegmentGroups
@@ -200,20 +231,26 @@ export async function runPipeline(
         message: `Describing ${source.name}...`,
       });
 
-      console.log(`[pipeline] Phase 2.5: Loading file "${source.name}" for description...`);
-      const file = await loadFileFromPath(source.path, source.name);
+      try {
+        console.log(`[pipeline] Phase 2.5: Extracting clip from "${source.name}" for Gemini...`);
+        const file = await loadClipForGemini(source.path, source.name);
 
-      const cid = cidMap.get(source.id);
-      console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
-      const descriptions = await describeSourceFile(file, duration, cid);
+        const cid = cidMap.get(source.id);
+        console.log(`[pipeline] Phase 2.5: Calling describeSourceFile (CID: ${cid?.substring(0, 8) ?? "none"}, duration: ${duration}s)`);
+        const descriptions = await describeSourceFile(file, duration, cid);
 
-      if (descriptions && descriptions.length > 0) {
-        source.descriptions = descriptions;
-        onDescriptions?.(source.id, descriptions);
-        console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
-        console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
-      } else {
-        console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
+        if (descriptions && descriptions.length > 0) {
+          source.descriptions = descriptions;
+          onDescriptions?.(source.id, descriptions);
+          console.log(`[pipeline] Phase 2.5: "${source.name}" — ${descriptions.length} time-ranged descriptions`);
+          console.log(`[pipeline] Phase 2.5: "${source.name}" descriptions:`, JSON.stringify(descriptions, null, 2));
+        } else {
+          console.log(`[pipeline] Phase 2.5: "${source.name}" — no descriptions returned`);
+        }
+      } catch (err) {
+        console.warn(`[pipeline] Phase 2.5: Failed to describe "${source.name}", skipping...`);
+        console.warn(`[pipeline] Phase 2.5: Error:`, err instanceof Error ? err.message : err);
+        // Continue with next source - descriptions are optional
       }
     }
     console.log(`[pipeline] Phase 2.5 COMPLETE`);
