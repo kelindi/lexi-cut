@@ -4,6 +4,7 @@ import { TranscriptPanel } from "../components/edit/TranscriptPanel";
 import { VideoPanel } from "../components/edit/VideoPanel";
 import { Timeline } from "../components/edit/Timeline";
 import { ProcessingView } from "../components/edit/ProcessingView";
+import { DebugEditPanel } from "../components/edit/DebugEditPanel";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { runPipeline } from "../api/processingPipeline";
@@ -150,8 +151,14 @@ export function EditPage() {
 
             {/* Video panel (right) */}
             <Panel defaultSize={35} minSize={20}>
-              <div className="h-full overflow-hidden">
-                <VideoPanel />
+              <div className="h-full overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-hidden">
+                  <VideoPanel />
+                </div>
+                {/* Debug panel for testing agent word operations */}
+                <div className="shrink-0 p-2 border-t border-neutral-800">
+                  <DebugEditPanel />
+                </div>
               </div>
             </Panel>
           </PanelGroup>

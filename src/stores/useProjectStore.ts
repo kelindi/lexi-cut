@@ -60,6 +60,9 @@ interface ProjectState {
   reorderEntry: (fromIndex: number, toIndex: number) => void;
   setEntryExcluded: (sentenceId: string, excluded: boolean) => void;
   toggleWordExcluded: (sentenceId: string, wordId: string) => void;
+  // Agent-only: batch word operations by index (used by agentic editing loop)
+  deleteWordsByIndices: (sentenceId: string, wordIndices: number[]) => void;
+  restoreWordsByIndices: (sentenceId: string, wordIndices: number[]) => void;
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
@@ -261,6 +264,57 @@ export const useProjectStore = create<ProjectState>((set) => ({
       },
       isDirty: true,
     })),
+
+  // Agent-only: delete words by 0-indexed positions
+  deleteWordsByIndices: (sentenceId, wordIndices) =>
+    set((state) => {
+      const sentence = state.sentences.find((s) => s.sentenceId === sentenceId);
+      if (!sentence) return state;
+
+      const wordIdsToExclude = wordIndices
+        .filter((idx) => idx >= 0 && idx < sentence.wordIds.length)
+        .map((idx) => sentence.wordIds[idx]);
+
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: state.timeline.entries.map((entry) => {
+            if (entry.sentenceId !== sentenceId) return entry;
+            const newExcluded = new Set(entry.excludedWordIds);
+            wordIdsToExclude.forEach((id) => newExcluded.add(id));
+            return { ...entry, excludedWordIds: Array.from(newExcluded) };
+          }),
+        },
+        isDirty: true,
+      };
+    }),
+
+  // Agent-only: restore words by 0-indexed positions
+  restoreWordsByIndices: (sentenceId, wordIndices) =>
+    set((state) => {
+      const sentence = state.sentences.find((s) => s.sentenceId === sentenceId);
+      if (!sentence) return state;
+
+      const wordIdsToRestore = new Set(
+        wordIndices
+          .filter((idx) => idx >= 0 && idx < sentence.wordIds.length)
+          .map((idx) => sentence.wordIds[idx])
+      );
+
+      return {
+        timeline: {
+          ...state.timeline,
+          entries: state.timeline.entries.map((entry) => {
+            if (entry.sentenceId !== sentenceId) return entry;
+            return {
+              ...entry,
+              excludedWordIds: entry.excludedWordIds.filter((id) => !wordIdsToRestore.has(id)),
+            };
+          }),
+        },
+        isDirty: true,
+      };
+    }),
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds) => set({ transcriptlessSourceIds: sourceIds, isDirty: true }),
