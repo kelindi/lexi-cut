@@ -125,7 +125,7 @@ export function Timeline() {
   const timeMarkers = getTimeMarkers();
 
   return (
-    <div className="shrink-0 border-t border-neutral-800 bg-[#0a0a0a]">
+    <div className="h-full overflow-hidden border-t border-neutral-800 bg-[#0a0a0a]">
       {/* Timeline container with ruler + tracks */}
       <div ref={trackRef} className="relative">
         {/* Ruler / Scrubber bar */}
@@ -172,8 +172,8 @@ export function Timeline() {
           </div>
         </div>
 
-        {/* Track area */}
-        <div className="relative h-14 bg-neutral-950">
+        {/* Track area - fixed height like NLEs */}
+        <div className="relative h-16 bg-neutral-950">
           {/* Segment blocks */}
           <div className="absolute inset-0 flex">
             {segments.map((seg, index) => {

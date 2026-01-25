@@ -1,13 +1,29 @@
 import { useEffect, useCallback, useRef } from "react";
-import { Export } from "@phosphor-icons/react";
+import { Panel, Group as PanelGroup, Separator } from "react-resizable-panels";
 import { TranscriptPanel } from "../components/edit/TranscriptPanel";
 import { VideoPanel } from "../components/edit/VideoPanel";
 import { Timeline } from "../components/edit/Timeline";
 import { ProcessingView } from "../components/edit/ProcessingView";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
-import { useExport } from "../hooks/useExport";
 import { runPipeline } from "../api/processingPipeline";
+
+function ResizeHandle({ orientation = "horizontal" }: { orientation?: "horizontal" | "vertical" }) {
+  const isHorizontal = orientation === "horizontal";
+  return (
+    <Separator
+      className={`group relative flex items-center justify-center bg-neutral-900 hover:bg-neutral-700 transition-colors ${
+        isHorizontal ? "w-1 hover:w-1.5" : "h-1 hover:h-1.5"
+      }`}
+    >
+      <div
+        className={`rounded-full bg-neutral-600 group-hover:bg-neutral-400 transition-colors ${
+          isHorizontal ? "h-8 w-1" : "w-8 h-1"
+        }`}
+      />
+    </Separator>
+  );
+}
 
 export function EditPage() {
   const sources = useSourcesStore((s) => s.sources);
@@ -26,8 +42,6 @@ export function EditPage() {
   const setSentences = useProjectStore((s) => s.setSentences);
   const setTranscriptlessSourceIds = useProjectStore((s) => s.setTranscriptlessSourceIds);
   const transcriptlessSourceIds = useProjectStore((s) => s.transcriptlessSourceIds);
-
-  const { exportVideo, isExporting, canExport } = useExport();
 
   // Run processing pipeline when sources are available and not already processed
   const runProcessing = useCallback(async () => {
@@ -97,77 +111,62 @@ export function EditPage() {
     transcriptlessSourceIds.length > 0 &&
     transcriptlessSourceIds.length === sources.length;
 
-  return (
-    <main className="flex h-[calc(100vh-5rem)] flex-col overflow-hidden bg-[#0a0a0a]">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-        <span className="text-sm font-medium text-white">lexi-cut</span>
-        <button
-          onClick={exportVideo}
-          disabled={!canExport || isExporting}
-          className="flex items-center gap-2 border border-neutral-700 px-3 py-1.5 text-sm text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <Export size={16} />
-          {isExporting ? "Exporting..." : "Export"}
-        </button>
-      </header>
+  // Show processing/error states
+  if (isProcessing || phase === "error" || (phase === "idle" && sources.length === 0)) {
+    return (
+      <main className="h-[calc(100vh-8rem)] bg-[#0a0a0a]">
+        <ProcessingView
+          phase={phase}
+          progress={progress}
+          error={error}
+          onRetry={runProcessing}
+        />
+      </main>
+    );
+  }
 
-      {/* Main content area */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        {isProcessing || phase === "error" || (phase === "idle" && sources.length === 0) ? (
-          <div className="flex-1">
-            <ProcessingView
-              phase={phase}
-              progress={progress}
-              error={error}
-              onRetry={runProcessing}
-            />
-          </div>
-        ) : isReady ? (
-          <>
+  if (!isReady) {
+    return (
+      <main className="h-[calc(100vh-8rem)] bg-[#0a0a0a]">
+        <ProcessingView phase="idle" progress={null} error={null} />
+      </main>
+    );
+  }
+
+  return (
+    <main className="h-[calc(100vh-8rem)] bg-[#0a0a0a]">
+      <PanelGroup orientation="vertical" className="h-full">
+        {/* Main content area */}
+        <Panel defaultSize={70} minSize={30}>
+          <PanelGroup orientation="horizontal" className="h-full">
             {/* Transcript panel (left) - hidden when fully transcriptless */}
             {!isFullyTranscriptless && (
-              <div className="w-2/3 border-r border-neutral-800 overflow-hidden">
-                <div className="h-full flex flex-col">
-                  <div className="border-b border-neutral-800 px-4 py-2">
-                    <span className="text-xs font-medium uppercase text-neutral-500">
-                      Transcript
-                    </span>
-                  </div>
-                  <div className="flex-1 min-h-0">
+              <>
+                <Panel defaultSize={65} minSize={20}>
+                  <div className="h-full overflow-hidden">
                     <TranscriptPanel />
                   </div>
-                </div>
-              </div>
+                </Panel>
+                <ResizeHandle orientation="horizontal" />
+              </>
             )}
 
             {/* Video panel (right, or full width if transcriptless) */}
-            <div className={isFullyTranscriptless ? "flex-1" : "w-1/3"}>
-              <div className="h-full flex flex-col overflow-hidden">
-                <div className="border-b border-neutral-800 px-4 py-2">
-                  <span className="text-xs font-medium uppercase text-neutral-500">
-                    Preview
-                  </span>
-                </div>
-                <div className="flex-1 min-h-0">
-                  <VideoPanel />
-                </div>
+            <Panel defaultSize={isFullyTranscriptless ? 100 : 35} minSize={20}>
+              <div className="h-full overflow-hidden">
+                <VideoPanel />
               </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1">
-            <ProcessingView
-              phase="idle"
-              progress={null}
-              error={null}
-            />
-          </div>
-        )}
-      </div>
+            </Panel>
+          </PanelGroup>
+        </Panel>
 
-      {/* Timeline (bottom) */}
-      {isReady && <Timeline />}
+        <ResizeHandle orientation="vertical" />
+
+        {/* Timeline (bottom) */}
+        <Panel defaultSize={30} minSize={10}>
+          <Timeline />
+        </Panel>
+      </PanelGroup>
     </main>
   );
 }

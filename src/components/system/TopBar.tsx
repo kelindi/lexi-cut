@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { CaretLeft, FloppyDisk, Circle } from "@phosphor-icons/react";
+import { CaretLeft, FloppyDisk, Circle, Export } from "@phosphor-icons/react";
 import { useProjectStore } from "../../stores/useProjectStore";
+import { useExport } from "../../hooks/useExport";
 
 export function TopBar() {
   const projectName = useProjectStore((s) => s.projectName);
@@ -8,6 +9,7 @@ export function TopBar() {
   const isDirty = useProjectStore((s) => s.isDirty);
   const markClean = useProjectStore((s) => s.markClean);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const { exportVideo, isExporting, canExport } = useExport();
 
   const handleSave = () => {
     if (!isDirty) return;
@@ -48,18 +50,30 @@ export function TopBar() {
             <Circle size={8} weight="fill" className="text-orange-400" />
           )}
         </div>
-        <button
-          onClick={handleSave}
-          disabled={!isDirty}
-          className={`flex items-center gap-2 rounded-md px-3 py-1.5 transition-colors ${
-            isDirty
-              ? "text-white hover:bg-white/10"
-              : "text-white/30 cursor-not-allowed"
-          }`}
-        >
-          <FloppyDisk size={18} />
-          <span className="text-sm">Save</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSave}
+            disabled={!isDirty}
+            className={`flex items-center gap-2 rounded-md px-3 py-1.5 transition-colors ${
+              isDirty
+                ? "text-white hover:bg-white/10"
+                : "text-white/30 cursor-not-allowed"
+            }`}
+          >
+            <FloppyDisk size={18} />
+            <span className="text-sm">Save</span>
+          </button>
+          {canExport && (
+            <button
+              onClick={exportVideo}
+              disabled={isExporting}
+              className="flex items-center gap-2 rounded-md bg-white px-3 py-1.5 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Export size={16} />
+              {isExporting ? "Exporting..." : "Export"}
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Unsaved Changes Confirmation Modal */}

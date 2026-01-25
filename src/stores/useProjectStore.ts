@@ -112,7 +112,6 @@ export const useProjectStore = create<ProjectState>((set) => ({
   markDirty: () => set({ isDirty: true }),
   markClean: () => set({ isDirty: false, lastSavedAt: Date.now() }),
 
-  setSegments: (segments) => set({ segments, isDirty: true }),
   setWords: (words) => set({ words, isDirty: true }),
 
   setSegmentGroups: (groups) =>

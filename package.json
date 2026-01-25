@@ -24,6 +24,7 @@
     "motion": "^12.29.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-resizable-panels": "^4.5.1",
     "remotion": "^4.0.409",
     "zustand": "^5.0.10"
   },
