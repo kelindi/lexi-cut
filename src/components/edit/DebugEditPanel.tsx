@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { useProjectStore, getWordsWithIds } from "../../stores/useProjectStore";
+import { useProjectStore } from "../../stores/useProjectStore";
+import {
+  deleteWords,
+  restoreWords,
+  reorderSentences,
+  getWordsWithIds,
+  getAgentContext,
+} from "../../stores/useAgenticStore";
 
 /**
  * Debug panel for testing agent word deletion/restoration by IDs.
@@ -10,20 +17,20 @@ import { useProjectStore, getWordsWithIds } from "../../stores/useProjectStore";
  * 2. Click on words to add their IDs to the input
  * 3. Click Delete or Restore to test the actions
  * 4. Use the swap section to switch two sentences
+ *
+ * All operations are now recorded in history for selective undo.
  */
 export function DebugEditPanel() {
   const [selectedSentenceId, setSelectedSentenceId] = useState<string>("");
   const [wordIdsInput, setWordIdsInput] = useState<string>("");
   const [lastResult, setLastResult] = useState<string>("");
   const [showAllWords, setShowAllWords] = useState(false);
+  const [showAgentContext, setShowAgentContext] = useState(false);
   const [reorderSequence, setReorderSequence] = useState<string[]>([]);
 
   const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
   const words = useProjectStore((s) => s.words);
-  const deleteWordsByIds = useProjectStore((s) => s.deleteWordsByIds);
-  const restoreWordsByIds = useProjectStore((s) => s.restoreWordsByIds);
-  const reorderSentencesById = useProjectStore((s) => s.reorderSentencesById);
 
   // Get the selected sentence and its words
   const selectedSentence = sentences.find((s) => s.sentenceId === selectedSentenceId);
@@ -54,7 +61,7 @@ export function DebugEditPanel() {
       setLastResult("Error: No word IDs provided");
       return;
     }
-    deleteWordsByIds(selectedSentenceId, ids);
+    deleteWords(selectedSentenceId, ids);
     setLastResult(`Deleted words: [${ids.join(", ")}]`);
   };
 
@@ -68,7 +75,7 @@ export function DebugEditPanel() {
       setLastResult("Error: No word IDs provided");
       return;
     }
-    restoreWordsByIds(selectedSentenceId, ids);
+    restoreWords(selectedSentenceId, ids);
     setLastResult(`Restored words: [${ids.join(", ")}]`);
   };
 
@@ -240,7 +247,7 @@ export function DebugEditPanel() {
               setLastResult("Error: Select at least 2 sentences to reorder");
               return;
             }
-            reorderSentencesById(reorderSequence);
+            reorderSentences(reorderSequence);
             setLastResult(`Reordered ${reorderSequence.length} sentences`);
             setReorderSequence([]);
           }}
@@ -267,6 +274,36 @@ export function DebugEditPanel() {
           {lastResult}
         </div>
       )}
+
+      {/* Agent Context */}
+      <div className="border-t border-neutral-700 pt-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-neutral-400">Agent Context (Full State)</label>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowAgentContext(!showAgentContext)}
+              className="px-2 py-1 text-xs bg-neutral-700 hover:bg-neutral-600 text-neutral-200 rounded transition-colors"
+            >
+              {showAgentContext ? "Hide" : "Show"}
+            </button>
+            <button
+              onClick={() => {
+                const text = getAgentContext();
+                navigator.clipboard.writeText(text);
+                setLastResult("Copied agent context to clipboard!");
+              }}
+              className="px-2 py-1 text-xs bg-purple-600 hover:bg-purple-500 text-white rounded transition-colors"
+            >
+              Copy
+            </button>
+          </div>
+        </div>
+        {showAgentContext && (
+          <pre className="text-xs font-mono text-neutral-300 bg-neutral-800 p-2 rounded overflow-auto max-h-64 whitespace-pre-wrap">
+            {getAgentContext() || "(no context)"}
+          </pre>
+        )}
+      </div>
 
       {/* All words with IDs */}
       <div className="border-t border-neutral-700 pt-4 space-y-2">
