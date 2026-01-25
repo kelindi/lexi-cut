@@ -1,5 +1,5 @@
 import { CheckCircle, XCircle, Spinner, FolderOpen, File } from "@phosphor-icons/react";
-import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
+import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import type { ExportProgressState } from "../../hooks/useExportProgress";
 
 interface ExportProgressProps {
@@ -46,13 +46,23 @@ export function ExportProgress({
 
   const handleOpenFile = async () => {
     if (outputPath) {
-      await openPath(outputPath);
+      try {
+        // Convert path to file:// URL for opening with default app
+        const fileUrl = `file://${outputPath}`;
+        await openUrl(fileUrl);
+      } catch (e) {
+        console.error("Failed to open file:", e);
+      }
     }
   };
 
   const handleOpenFolder = async () => {
     if (outputPath) {
-      await revealItemInDir(outputPath);
+      try {
+        await revealItemInDir(outputPath);
+      } catch (e) {
+        console.error("Failed to reveal in folder:", e);
+      }
     }
   };
 
