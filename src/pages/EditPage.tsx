@@ -41,7 +41,6 @@ export function EditPage() {
   const setOrderedGroupIds = useProjectStore((s) => s.setOrderedGroupIds);
   const setSentences = useProjectStore((s) => s.setSentences);
   const setTranscriptlessSourceIds = useProjectStore((s) => s.setTranscriptlessSourceIds);
-  const transcriptlessSourceIds = useProjectStore((s) => s.transcriptlessSourceIds);
 
   // Run processing pipeline when sources are available and not already processed
   const runProcessing = useCallback(async () => {
@@ -106,11 +105,6 @@ export function EditPage() {
   const isReady = phase === "ready" && segmentGroups.length > 0;
   const isProcessing = phase !== "idle" && phase !== "ready" && phase !== "error";
 
-  // Determine if all sources are transcriptless (no transcript panel needed)
-  const isFullyTranscriptless =
-    transcriptlessSourceIds.length > 0 &&
-    transcriptlessSourceIds.length === sources.length;
-
   // Show processing/error states
   if (isProcessing || phase === "error" || (phase === "idle" && sources.length === 0)) {
     return (
@@ -139,20 +133,16 @@ export function EditPage() {
         {/* Main content area */}
         <Panel defaultSize={70} minSize={30}>
           <PanelGroup orientation="horizontal" className="h-full">
-            {/* Transcript panel (left) - hidden when fully transcriptless */}
-            {!isFullyTranscriptless && (
-              <>
-                <Panel defaultSize={65} minSize={20}>
-                  <div className="h-full overflow-hidden">
-                    <TranscriptPanel />
-                  </div>
-                </Panel>
-                <ResizeHandle orientation="horizontal" />
-              </>
-            )}
+            {/* Transcript panel (left) */}
+            <Panel defaultSize={65} minSize={20}>
+              <div className="h-full overflow-hidden">
+                <TranscriptPanel />
+              </div>
+            </Panel>
+            <ResizeHandle orientation="horizontal" />
 
-            {/* Video panel (right, or full width if transcriptless) */}
-            <Panel defaultSize={isFullyTranscriptless ? 100 : 35} minSize={20}>
+            {/* Video panel (right) */}
+            <Panel defaultSize={35} minSize={20}>
               <div className="h-full overflow-hidden">
                 <VideoPanel />
               </div>

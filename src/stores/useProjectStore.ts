@@ -132,7 +132,8 @@ export const useProjectStore = create<ProjectState>((set) => ({
           excludedGroupIds: [],
           isDirty: false,
           lastSavedAt: data.savedAt,
-          phase: data.words.length > 0 ? "ready" : "idle",
+          // Project is ready if it has sentences (transcriptless videos have sentences but no words)
+          phase: data.sentences.length > 0 || data.segmentGroups.length > 0 ? "ready" : "idle",
         });
 
         // Restore sources to the sources store

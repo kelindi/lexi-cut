@@ -293,6 +293,23 @@ export async function runPipeline(
     originalGroupId: g.groupId,
   }));
 
+  // Create sentences for transcriptless sources (videos with no audio)
+  // These have no words but still need to be in the timeline
+  let transcriptlessSentenceIdx = sentences.length;
+  for (const { sourceId, duration } of sourcesWithNoSpeech) {
+    const source = sources.find((s) => s.id === sourceId);
+    const transcriptlessSentence: Sentence = {
+      sentenceId: `sentence-${transcriptlessSentenceIdx++}`,
+      sourceId,
+      wordIds: [], // No words for transcriptless sources
+      text: source?.name ?? "Video",
+      startTime: 0,
+      endTime: duration,
+    };
+    sentences.push(transcriptlessSentence);
+    console.log(`[pipeline] Created sentence for transcriptless source "${source?.name}" (0s-${duration}s)`);
+  }
+
   const transcriptlessSourceIds = sourcesWithNoSpeech.map((s) => s.sourceId);
 
   console.log(`[pipeline] ===== PIPELINE COMPLETE =====`);

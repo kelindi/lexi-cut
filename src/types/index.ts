@@ -59,7 +59,7 @@ export interface ElevenLabsTranscriptResponse {
   language_code: string;
   language_probability: number;
   text: string;
-  words: ElevenLabsWord[];
+  words: ElevenLabsWord[]; // May be empty or undefined for videos with no audio
   transcription_id: string;
 }
 

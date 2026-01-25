@@ -65,6 +65,11 @@ export function mapTranscriptToWords(
   response: ElevenLabsTranscriptResponse,
   sourceId: string
 ): Word[] {
+  // Handle videos with no audio (words might be null/undefined/empty)
+  if (!response.words || response.words.length === 0) {
+    return [];
+  }
+
   return response.words
     .filter((w) => w.type === "word")
     .map((word, index) => ({
