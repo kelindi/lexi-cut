@@ -134,7 +134,9 @@ pub async fn export_video(
             },
         );
 
-        // Use ffmpeg to extract segment with progress output
+        // Use ffmpeg to extract and re-encode segment with progress output
+        // Re-encoding ensures each segment starts with a keyframe, eliminating stuttering at cuts
+        // Timestamp flags ensure clean concatenation without freezes
         let mut child = Command::new("ffmpeg")
             .args([
                 "-y",
@@ -145,10 +147,17 @@ pub async fn export_video(
                 &segment.source_path,
                 "-t",
                 &format!("{:.3}", duration),
-                "-c",
-                "copy",
-                "-avoid_negative_ts",
-                "make_zero",
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-crf", "18",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-force_key_frames", "expr:eq(n,0)",
+                "-pix_fmt", "yuv420p",
+                "-video_track_timescale", "90000",
+                "-avoid_negative_ts", "make_zero",
+                "-fflags", "+genpts",
+                "-movflags", "+faststart",
                 &output_file_str,
             ])
             .stderr(Stdio::piped())
@@ -241,8 +250,10 @@ pub async fn export_video(
             "0",
             "-i",
             concat_list_str,
+            "-fflags", "+genpts+igndts",
             "-c",
             "copy",
+            "-movflags", "+faststart",
             &output_path,
         ])
         .output()
