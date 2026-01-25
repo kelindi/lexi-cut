@@ -7,6 +7,10 @@ import type {
 } from "../types";
 
 interface ProjectState {
+  // Project identity
+  projectId: string | null;
+  projectName: string | null;
+
   // Raw data
   segments: Segment[];
   segmentGroups: SegmentGroup[];
@@ -19,6 +23,11 @@ interface ProjectState {
   phase: ProcessingPhase;
   progress: ProcessingProgress | null;
   error: string | null;
+
+  // Project actions
+  createProject: (name: string) => void;
+  openProject: (id: string, name: string) => void;
+  closeProject: () => void;
 
   // Actions
   setSegments: (segments: Segment[]) => void;
@@ -35,6 +44,8 @@ interface ProjectState {
 }
 
 const initialState = {
+  projectId: null as string | null,
+  projectName: null as string | null,
   segments: [],
   segmentGroups: [],
   orderedGroupIds: [],
@@ -46,6 +57,22 @@ const initialState = {
 
 export const useProjectStore = create<ProjectState>((set) => ({
   ...initialState,
+
+  createProject: (name) =>
+    set({
+      ...initialState,
+      projectId: crypto.randomUUID(),
+      projectName: name,
+    }),
+
+  openProject: (id, name) =>
+    set({
+      ...initialState,
+      projectId: id,
+      projectName: name,
+    }),
+
+  closeProject: () => set(initialState),
 
   setSegments: (segments) => set({ segments }),
 
