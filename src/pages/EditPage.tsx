@@ -8,6 +8,7 @@ import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { runPipeline } from "../api/processingPipeline";
 import { executeAgenticAssemblyCut } from "../api/agenticEdit";
+import { useSaveProject } from "../hooks/useSaveProject";
 
 function ResizeHandle({ orientation = "horizontal" }: { orientation?: "horizontal" | "vertical" }) {
   const isHorizontal = orientation === "horizontal";
@@ -29,6 +30,9 @@ function ResizeHandle({ orientation = "horizontal" }: { orientation?: "horizonta
 export function EditPage() {
   const sources = useSourcesStore((s) => s.sources);
   const updateSourceDescriptions = useSourcesStore((s) => s.updateSourceDescriptions);
+
+  // Initialize save hook (also registers Cmd/Ctrl+S keyboard shortcut)
+  const { save } = useSaveProject();
 
   const phase = useProjectStore((s) => s.phase);
   const progress = useProjectStore((s) => s.progress);
@@ -101,6 +105,9 @@ export function EditPage() {
 
       setPhase("ready");
       setProgress(null);
+
+      // Auto-save after first assembly cut completes
+      await save();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -117,6 +124,7 @@ export function EditPage() {
     setBrollClassifications,
     initializeTimeline,
     updateSourceDescriptions,
+    save,
   ]);
 
   // Auto-run pipeline when sources change and we don't have results
