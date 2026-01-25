@@ -278,7 +278,7 @@ function ConversationItemRow({ item, isActive, onRemove }: ConversationItemRowPr
             <span className="text-xs text-neutral-500">(click x to undo)</span>
           )}
           {item.isStreaming && (
-            <span className="text-xs text-green-400 animate-pulse">streaming...</span>
+            <span className="text-xs text-green-400 animate-pulse">thinking...</span>
           )}
         </div>
         <p className="text-sm text-neutral-200 break-words whitespace-pre-wrap">
