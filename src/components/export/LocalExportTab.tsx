@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { save } from "@tauri-apps/plugin-dialog";
+import { ArrowRight } from "@phosphor-icons/react";
 import { useTimelineSegments } from "../../hooks/useTimelineSegments";
 import { useExportProgress } from "../../hooks/useExportProgress";
 import { ExportProgress } from "./ExportProgress";
@@ -54,13 +55,26 @@ const RESOLUTIONS: ResolutionOption[] = [
   { id: "720p", name: "720p (1280×720)", width: 1280, height: 720 },
 ];
 
-interface LocalExportTabProps {
-  onClose: () => void;
+export interface ExportSettings {
+  preset: ExportPreset;
+  resolution: ExportResolution;
 }
 
-export function LocalExportTab({ onClose }: LocalExportTabProps) {
-  const [preset, setPreset] = useState<ExportPreset>("fast");
-  const [resolution, setResolution] = useState<ExportResolution>("original");
+interface LocalExportTabProps {
+  onClose: () => void;
+  onProceedToSocial?: (settings: ExportSettings) => void;
+  initialPreset?: ExportPreset;
+  initialResolution?: ExportResolution;
+}
+
+export function LocalExportTab({
+  onClose,
+  onProceedToSocial,
+  initialPreset = "fast",
+  initialResolution = "original",
+}: LocalExportTabProps) {
+  const [preset, setPreset] = useState<ExportPreset>(initialPreset);
+  const [resolution, setResolution] = useState<ExportResolution>(initialResolution);
   const [isExporting, setIsExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outputPath, setOutputPath] = useState<string | null>(null);
@@ -205,14 +219,33 @@ export function LocalExportTab({ onClose }: LocalExportTabProps) {
         </div>
       )}
 
-      {/* Export Button */}
-      <button
-        onClick={handleExport}
-        disabled={isExporting || segments.length === 0}
-        className="w-full rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {isExporting ? "Exporting..." : "Export"}
-      </button>
+      {/* Action Buttons */}
+      <div className="flex flex-col gap-2">
+        {/* Next: Social Media button */}
+        {onProceedToSocial && (
+          <button
+            onClick={() => onProceedToSocial({ preset, resolution })}
+            disabled={segments.length === 0}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition-colors hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Next: Social Media
+            <ArrowRight size={16} weight="bold" />
+          </button>
+        )}
+
+        {/* Export Local Only button */}
+        <button
+          onClick={handleExport}
+          disabled={isExporting || segments.length === 0}
+          className={`w-full rounded-lg px-4 py-2.5 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            onProceedToSocial
+              ? "border border-white/10 text-white hover:bg-white/5"
+              : "bg-white text-black hover:bg-white/90"
+          }`}
+        >
+          {isExporting ? "Exporting..." : onProceedToSocial ? "Export Local Only" : "Export"}
+        </button>
+      </div>
     </div>
   );
 }
