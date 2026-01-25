@@ -5,7 +5,10 @@ import type {
   Sentence,
   ProcessingPhase,
   ProcessingProgress,
+  Source,
 } from "../types";
+import { saveProjectData, loadProjectData, type ProjectData } from "../api/projects";
+import { useSourcesStore } from "./useSourcesStore";
 
 interface ProjectState {
   // Project identity
@@ -42,10 +45,12 @@ interface ProjectState {
 
   // Project actions
   createProject: (name: string) => void;
-  openProject: (id: string, name: string) => void;
+  openProject: (id: string, name: string) => Promise<void>;
   closeProject: () => void;
   markDirty: () => void;
   markClean: () => void;
+  saveProject: (sources: Source[]) => Promise<void>;
+  loadProject: (projectId: string) => Promise<ProjectData | null>;
 
   // Actions
   setWords: (words: Word[]) => void;
@@ -100,17 +105,99 @@ export const useProjectStore = create<ProjectState>((set) => ({
       projectName: name,
     }),
 
-  openProject: (id, name) =>
+  openProject: async (id, name) => {
+    // First set the project identity with initial state
     set({
       ...initialState,
       projectId: id,
       projectName: name,
-    }),
+    });
 
-  closeProject: () => set(initialState),
+    // Try to load saved project data
+    try {
+      const data = await loadProjectData(id);
+      if (data) {
+        // Restore project store state
+        set({
+          projectId: data.id,
+          projectName: data.name,
+          words: data.words,
+          sentences: data.sentences,
+          segmentGroups: data.segmentGroups,
+          orderedSentenceIds: data.orderedSentenceIds,
+          excludedSentenceIds: data.excludedSentenceIds,
+          excludedWordIds: data.excludedWordIds,
+          transcriptlessSourceIds: data.transcriptlessSourceIds,
+          orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
+          excludedGroupIds: [],
+          isDirty: false,
+          lastSavedAt: data.savedAt,
+          phase: data.words.length > 0 ? "ready" : "idle",
+        });
+
+        // Restore sources to the sources store
+        useSourcesStore.getState().setSources(data.sources);
+      }
+    } catch (error) {
+      console.error("Failed to load project data:", error);
+      // Project will open with empty state (new project or failed load)
+    }
+  },
+
+  closeProject: () => {
+    set(initialState);
+    useSourcesStore.getState().clearSources();
+  },
 
   markDirty: () => set({ isDirty: true }),
   markClean: () => set({ isDirty: false, lastSavedAt: Date.now() }),
+
+  saveProject: async (sources: Source[]) => {
+    const state = useProjectStore.getState();
+    if (!state.projectId || !state.projectName) {
+      throw new Error("No active project");
+    }
+
+    const data: ProjectData = {
+      id: state.projectId,
+      name: state.projectName,
+      sources,
+      words: state.words,
+      sentences: state.sentences,
+      segmentGroups: state.segmentGroups,
+      orderedSentenceIds: state.orderedSentenceIds,
+      excludedSentenceIds: state.excludedSentenceIds,
+      excludedWordIds: state.excludedWordIds,
+      transcriptlessSourceIds: state.transcriptlessSourceIds,
+      savedAt: Date.now(),
+    };
+
+    await saveProjectData(data);
+    set({ isDirty: false, lastSavedAt: Date.now() });
+  },
+
+  loadProject: async (projectId: string) => {
+    const data = await loadProjectData(projectId);
+    if (data) {
+      set({
+        projectId: data.id,
+        projectName: data.name,
+        words: data.words,
+        sentences: data.sentences,
+        segmentGroups: data.segmentGroups,
+        orderedSentenceIds: data.orderedSentenceIds,
+        excludedSentenceIds: data.excludedSentenceIds,
+        excludedWordIds: data.excludedWordIds,
+        transcriptlessSourceIds: data.transcriptlessSourceIds,
+        orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
+        excludedGroupIds: [],
+        isDirty: false,
+        lastSavedAt: data.savedAt,
+        phase: "ready",
+      });
+    }
+    return data;
+  },
 
   setWords: (words) => set({ words, isDirty: true }),
 
