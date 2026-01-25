@@ -115,19 +115,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
     }),
 
   openProject: async (id, name) => {
-    // First set the project identity with initial state
-    set({
-      ...initialState,
-      projectId: id,
-      projectName: name,
-    });
-
-    // Try to load saved project data
+    // Try to load saved project data first, then set state atomically
     try {
       const data = await loadProjectData(id);
       if (data) {
-        // Restore project store state
+        // Restore project store state with all data at once
         set({
+          ...initialState,
           projectId: data.id,
           projectName: data.name,
           words: data.words,
@@ -145,10 +139,22 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
         // Restore sources to the sources store
         useSourcesStore.getState().setSources(data.sources);
+      } else {
+        // No saved data - new project
+        set({
+          ...initialState,
+          projectId: id,
+          projectName: name,
+        });
       }
     } catch (error) {
       console.error("Failed to load project data:", error);
       // Project will open with empty state (new project or failed load)
+      set({
+        ...initialState,
+        projectId: id,
+        projectName: name,
+      });
     }
   },
 

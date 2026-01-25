@@ -13,13 +13,14 @@ function App() {
   const [step, setStep] = useState<Step>("clips");
   const projectId = useProjectStore((s) => s.projectId);
   const timeline = useProjectStore((s) => s.timeline);
+  const phase = useProjectStore((s) => s.phase);
 
-  // If project has already been processed (has timeline data), skip to edit step
+  // If project has already been processed (has timeline data or is ready), skip to edit step
   useEffect(() => {
-    if (timeline.entries.length > 0) {
+    if (timeline.entries.length > 0 || phase === "ready") {
       setStep("edit");
     }
-  }, [timeline.entries.length]);
+  }, [timeline.entries.length, phase]);
 
   // Reset step when project changes
   useEffect(() => {

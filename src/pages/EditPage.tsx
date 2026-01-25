@@ -127,15 +127,18 @@ export function EditPage() {
     }
   }, [sources.length, segmentGroups.length, timeline.entries.length, phase, runProcessing]);
 
-  const isReady = phase === "ready" && (segmentGroups.length > 0 || timeline.entries.length > 0);
+  const hasData = segmentGroups.length > 0 || timeline.entries.length > 0;
+  const isReady = phase === "ready" && hasData;
   const isProcessing = phase !== "idle" && phase !== "ready" && phase !== "error";
+  // Show spinner when we have sources but no data yet (about to start processing)
+  const isAboutToProcess = phase === "idle" && sources.length > 0 && !hasData;
 
   // Show processing/error states
-  if (isProcessing || phase === "error" || (phase === "idle" && sources.length === 0)) {
+  if (isProcessing || isAboutToProcess || phase === "error") {
     return (
       <main className="h-[calc(100vh-3rem)] bg-[#0a0a0a]">
         <ProcessingView
-          phase={phase}
+          phase={isAboutToProcess ? "transcribing" : phase}
           progress={progress}
           error={error}
           onRetry={runProcessing}

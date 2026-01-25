@@ -72,11 +72,7 @@ export function ProcessingView({
   }
 
   if (phase === "idle") {
-    return (
-      <div className="flex h-full items-center justify-center text-neutral-500">
-        Add clips to begin
-      </div>
-    );
+    return null;
   }
 
   return (
