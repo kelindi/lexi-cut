@@ -16,9 +16,11 @@ import {
 import { SentenceItem } from "./SentenceItem";
 import { useProjectStore } from "../../stores/useProjectStore";
 import { useSelectionStore } from "../../stores/useSelectionStore";
+import { useSourcesStore } from "../../stores/useSourcesStore";
 import { usePlaybackStore, secondsToFrames, framesToSeconds } from "../../stores/usePlaybackStore";
 import { useTimelineSegments } from "../../hooks/useTimelineSegments";
-import type { Sentence, TimelineEntry } from "../../types";
+import { matchDescriptionsToSentences } from "../../utils/descriptionMatcher";
+import type { Sentence, TimelineEntry, SourceDescription } from "../../types";
 
 // Color palette for source files - matches Timeline.tsx
 const SOURCE_COLORS = [
@@ -38,6 +40,9 @@ export function TranscriptPanel() {
   const reorderEntry = useProjectStore((s) => s.reorderEntry);
   const setEntryExcluded = useProjectStore((s) => s.setEntryExcluded);
   const toggleWordExcluded = useProjectStore((s) => s.toggleWordExcluded);
+
+  // Sources state (for descriptions)
+  const sources = useSourcesStore((s) => s.sources);
 
   // Playback state
   const currentFrame = usePlaybackStore((s) => s.currentFrame);
@@ -61,6 +66,23 @@ export function TranscriptPanel() {
   const sentenceMap = useMemo(
     () => new Map(sentences.map((s) => [s.sentenceId, s])),
     [sentences]
+  );
+
+  // Build sourceId → descriptions map
+  const descriptionsBySource = useMemo(() => {
+    const map = new Map<string, SourceDescription[]>();
+    for (const source of sources) {
+      if (source.descriptions && source.descriptions.length > 0) {
+        map.set(source.id, source.descriptions);
+      }
+    }
+    return map;
+  }, [sources]);
+
+  // Match descriptions to sentences (each description shows once, on first overlapping sentence)
+  const sentenceDescriptions = useMemo(
+    () => matchDescriptionsToSentences(timeline.entries, sentenceMap, descriptionsBySource),
+    [timeline.entries, sentenceMap, descriptionsBySource]
   );
 
   // All entries with their corresponding sentences
@@ -314,6 +336,8 @@ export function TranscriptPanel() {
               const sourceColor = sourceColors.get(sentence.sourceId) || SOURCE_COLORS[0];
               // Build excluded word set for this entry
               const excludedWordSet = new Set(entry.excludedWordIds);
+              // Get description for this sentence (if any)
+              const description = sentenceDescriptions.get(sentence.sentenceId);
               return (
                 <div
                   key={sentence.sentenceId}
@@ -327,6 +351,7 @@ export function TranscriptPanel() {
                     isExcluded={isExcluded}
                     isMoved={isMoved}
                     sourceColor={sourceColor}
+                    description={description}
                     currentSourceTime={
                       !isExcluded && activePlayback?.sentenceId === sentence.sentenceId
                         ? activePlayback.sourceTime

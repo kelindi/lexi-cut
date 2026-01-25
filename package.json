@@ -22,6 +22,7 @@
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-http": "^2.5.6",
     "@tauri-apps/plugin-opener": "^2",
+    "ldrs": "^1.1.9",
     "motion": "^12.29.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

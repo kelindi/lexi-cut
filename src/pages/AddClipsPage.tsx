@@ -5,6 +5,7 @@ import { UploadCard } from "../components";
 import { useSourcesStore } from "../stores";
 import { generateCid } from "../utils/cid";
 import { generateThumbnail } from "../utils/video";
+import { transcribeSourceBackground, describeSourceBackground } from "../api/backgroundProcessing";
 import type { Source } from "../types";
 
 interface AddClipsPageProps {
@@ -39,9 +40,10 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
 
     const newSources = await Promise.all(
       paths.map(async (path) => {
-        const [thumbnail, duration] = await Promise.all([
+        const [thumbnail, duration, dimensions] = await Promise.all([
           generateThumbnail(path),
           invoke<number>("get_duration", { videoPath: path }).catch(() => undefined),
+          invoke<{ width: number; height: number }>("get_dimensions", { videoPath: path }).catch(() => undefined),
         ]);
         const name = path.split("/").pop() || path;
         return {
@@ -50,16 +52,22 @@ export function AddClipsPage({ onNext }: AddClipsPageProps) {
           thumbnail,
           path,
           duration,
+          width: dimensions?.width,
+          height: dimensions?.height,
         } as Source;
       }),
     );
 
     addSources(newSources);
 
-    // Generate CIDs in background after sources are added
+    // Generate CIDs in background after sources are added, then start processing
     newSources.forEach((source) => {
       generateCid(source.path).then((cid) => {
         updateSourceCid(source.id, cid);
+
+        // Start background processing immediately (fire and forget)
+        transcribeSourceBackground(source.path, cid);
+        describeSourceBackground(source.path, source.duration, cid);
       });
     });
   };

@@ -225,8 +225,13 @@ export async function describeFrames(
     });
   }
 
+  // Build timestamp list for the prompt
+  const timestampList = frames.map((f, i) => `Frame ${i + 1}: ${f.timestamp.toFixed(1)}s`).join(", ");
+
   // Add the prompt
-  const prompt = `I've provided ${frames.length} frames extracted from a ${durationSeconds} second video, at 1 frame per second. Each frame represents what's happening at that second (frame 1 = second 0, frame 2 = second 1, etc.).
+  const prompt = `I've provided ${frames.length} frames extracted from a ${durationSeconds} second video. These frames were extracted at keyframes (scene changes) and to fill gaps, so they're at varying intervals:
+
+${timestampList}
 
 Analyze these frames and describe what is visually happening throughout the video. Break the video into logical segments based on changes in action, subject, or setting. For each segment, provide:
 - start: the start time in seconds
@@ -234,10 +239,9 @@ Analyze these frames and describe what is visually happening throughout the vide
 - description: a concise 1-2 sentence description focusing on actions, subjects, and setting
 
 Rules:
-- Times are in seconds (integers)
+- Use the actual timestamps provided (they are not evenly spaced)
 - Segments should cover the entire video from 0 to ${durationSeconds} without gaps
 - Each segment should represent a visually distinct moment or scene
-- Combine consecutive similar frames into single segments
 - Be specific about what you see in the frames`;
 
   parts.push({ text: prompt });

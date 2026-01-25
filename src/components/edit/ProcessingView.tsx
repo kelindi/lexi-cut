@@ -1,4 +1,6 @@
-import { CircleNotch } from "@phosphor-icons/react";
+import { useState, useEffect } from "react";
+import { Quantum } from "ldrs/react";
+import "ldrs/react/Quantum.css";
 import type { ProcessingPhase, ProcessingProgress } from "../../types";
 
 interface ProcessingViewProps {
@@ -8,22 +10,44 @@ interface ProcessingViewProps {
   onRetry?: () => void;
 }
 
-const PHASE_LABELS: Record<ProcessingPhase, string> = {
-  idle: "Ready",
-  transcribing: "Transcribing audio...",
-  grouping: "Grouping segments...",
-  describing: "Analyzing video content...",
-  assembling: "Analyzing narrative...",
-  ready: "Complete",
-  error: "Error",
-};
+const FUN_MESSAGES = [
+  "Analyzing pixels with extreme prejudice...",
+  "Teaching AI to appreciate your cinematography...",
+  "Converting chaos into clips...",
+  "Summoning the video editing spirits...",
+  "Doing the thing with the videos...",
+  "Running highly sophisticated algorithms...",
+  "Making your footage feel seen...",
+  "Consulting the oracle of optimal cuts...",
+  "Parsing frames at ludicrous speed...",
+  "Transcribing words, ignoring mumbles...",
+  "Finding the narrative hidden in your footage...",
+  "Applying machine learning magic...",
+  "Crunching numbers, vibing hard...",
+  "Extracting pure cinema from raw files...",
+  "Channeling Spielberg energy...",
+];
 
 export function ProcessingView({
   phase,
-  progress,
   error,
   onRetry,
 }: ProcessingViewProps) {
+  const [messageIndex, setMessageIndex] = useState(0);
+
+  useEffect(() => {
+    if (phase === "ready" || phase === "idle" || phase === "error") {
+      return;
+    }
+
+    // Rotate messages every 3 seconds
+    const interval = setInterval(() => {
+      setMessageIndex((prev) => (prev + 1) % FUN_MESSAGES.length);
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [phase]);
+
   if (phase === "ready") {
     return null;
   }
@@ -56,36 +80,14 @@ export function ProcessingView({
   }
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4">
-      {/* Spinner */}
-      <CircleNotch size={32} className="animate-spin text-white" />
+    <div className="flex h-full flex-col items-center justify-center gap-6">
+      {/* Quantum loader */}
+      <Quantum size="80" speed="1.75" color="white" />
 
-      {/* Phase label */}
-      <div className="text-white">{PHASE_LABELS[phase]}</div>
-
-      {/* Progress message */}
-      {progress?.message && (
-        <div className="text-sm text-neutral-400">{progress.message}</div>
-      )}
-
-      {/* Progress bar */}
-      {progress && progress.total > 1 && (
-        <div className="w-64">
-          <div className="mb-1 flex justify-between text-xs text-neutral-500">
-            <span>
-              {progress.current} / {progress.total}
-            </span>
-          </div>
-          <div className="h-1 bg-neutral-800">
-            <div
-              className="h-full bg-white transition-[width]"
-              style={{
-                width: `${(progress.current / progress.total) * 100}%`,
-              }}
-            />
-          </div>
-        </div>
-      )}
+      {/* Fun rotating message */}
+      <div className="text-sm text-neutral-400">
+        {FUN_MESSAGES[messageIndex]}
+      </div>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { transcribeFile, mapTranscriptToWords } from "./transcribe";
 import { groupWords } from "./segmentGrouping";
 import { describeSourceWithFrames } from "./describeSegments";
 import { requestAssemblyCut, groupWordsForAssembly } from "./assemblyCut";
+import { waitForInFlight } from "./backgroundProcessing";
 
 /**
  * Ensure all sources have CIDs computed.
@@ -105,6 +106,16 @@ export async function runPipeline(
   });
   const cidMap = await ensureSourceCids(sources);
   console.log(`[pipeline] CIDs computed: ${cidMap.size}/${sources.length} sources have CIDs`);
+
+  // Wait for any in-flight background processing before starting pipeline
+  console.log(`[pipeline] Waiting for any in-flight background processing...`);
+  for (const source of sources) {
+    const cid = cidMap.get(source.id) || source.cid;
+    if (cid) {
+      await waitForInFlight(cid);
+    }
+  }
+  console.log(`[pipeline] Background processing sync complete`);
 
   // Phase 1: Transcribe each source (with caching)
   console.log(`[pipeline] Phase 1: Transcribing ${sources.length} source(s)...`);

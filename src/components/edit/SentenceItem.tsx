@@ -21,6 +21,7 @@ interface SentenceItemProps {
   isExcluded: boolean;
   isMoved: boolean;
   sourceColor: string;
+  description?: string;
   currentSourceTime: number | null;
   onSelect: () => void;
   onDelete: () => void;
@@ -38,6 +39,7 @@ export function SentenceItem({
   isExcluded,
   isMoved,
   sourceColor,
+  description,
   currentSourceTime,
   onSelect,
   onDelete,
@@ -158,33 +160,42 @@ export function SentenceItem({
         {formatTime(sentence.startTime)}
       </span>
 
-      {/* Sentence text */}
+      {/* Sentence text with optional description */}
       <div className={`
-        flex-1 min-w-0 text-[14px] leading-relaxed font-mono font-light
+        flex-1 min-w-0
         ${isExcluded ? "text-neutral-500 line-through decoration-neutral-600" : ""}
       `}>
-        {isExcluded ? (
-          <span className="cursor-pointer">{sentence.text}</span>
-        ) : (
-          words.map((w, idx) => (
-            <WordSpan
-              key={w.wordId || idx}
-              word={w.word}
-              isExcluded={w.wordId ? excludedWordIds.has(w.wordId) : false}
-              isActive={isWordActive(w)}
-              isSelected={w.wordId === selectedWordId}
-              isLastWord={idx === words.length - 1}
-              isInteractive={!!w.wordId}
-              onSelect={() => w.wordId && onSelectWord(w.wordId)}
-              onSeek={() => onSeekToWord(w.start)}
-              onDoubleClick={() => {
-                if (w.wordId) {
-                  onToggleWord(w.wordId);
-                }
-              }}
-            />
-          ))
+        {/* Screenplay-style description */}
+        {description && !isExcluded && (
+          <div className="text-[12px] text-neutral-400 italic font-sans mb-1 select-none">
+            [{description}]
+          </div>
         )}
+        {/* Sentence text */}
+        <div className="text-[14px] leading-relaxed font-mono font-light">
+          {isExcluded ? (
+            <span className="cursor-pointer">{sentence.text}</span>
+          ) : (
+            words.map((w, idx) => (
+              <WordSpan
+                key={w.wordId || idx}
+                word={w.word}
+                isExcluded={w.wordId ? excludedWordIds.has(w.wordId) : false}
+                isActive={isWordActive(w)}
+                isSelected={w.wordId === selectedWordId}
+                isLastWord={idx === words.length - 1}
+                isInteractive={!!w.wordId}
+                onSelect={() => w.wordId && onSelectWord(w.wordId)}
+                onSeek={() => onSeekToWord(w.start)}
+                onDoubleClick={() => {
+                  if (w.wordId) {
+                    onToggleWord(w.wordId);
+                  }
+                }}
+              />
+            ))
+          )}
+        </div>
       </div>
 
       {/* Action buttons */}

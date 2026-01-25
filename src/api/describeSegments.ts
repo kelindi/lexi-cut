@@ -4,7 +4,7 @@ import { describeFrames, FrameData, RateLimitError } from "./gemini";
 import { getCachedDescriptions, setCachedDescriptions } from "./cache";
 
 const MAX_RETRIES = 3;
-const MAX_FRAMES = 30; // Limit to 30 frames (30 seconds) for Gemini
+const MAX_FRAMES = 60; // Limit frames sent to Gemini (hybrid extraction is smart about selection)
 
 interface ExtractedFrame {
   timestamp: number;

@@ -23,6 +23,8 @@ export interface Source {
   thumbnail: string;
   path: string;
   duration?: number;
+  width?: number;
+  height?: number;
   descriptions?: SourceDescription[];
 }
 

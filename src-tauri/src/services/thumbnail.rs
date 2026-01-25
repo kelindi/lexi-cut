@@ -80,3 +80,41 @@ pub fn get_video_duration(video_path: &Path) -> Result<f64, String> {
         .parse::<f64>()
         .map_err(|e| format!("Failed to parse duration '{}': {}", duration_str.trim(), e))
 }
+
+/// Extract video dimensions (width, height) using ffprobe
+pub fn get_video_dimensions(video_path: &Path) -> Result<(u32, u32), String> {
+    let output = Command::new("ffprobe")
+        .args([
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=s=x:p=0",
+            &video_path.to_string_lossy(),
+        ])
+        .output()
+        .map_err(|e| format!("Failed to run ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "ffprobe failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+
+    let dims_str = String::from_utf8_lossy(&output.stdout);
+    let dims_str = dims_str.trim();
+    let parts: Vec<&str> = dims_str.split('x').collect();
+
+    if parts.len() != 2 {
+        return Err(format!("Unexpected dimensions format: '{}'", dims_str));
+    }
+
+    let width = parts[0]
+        .parse::<u32>()
+        .map_err(|e| format!("Failed to parse width '{}': {}", parts[0], e))?;
+    let height = parts[1]
+        .parse::<u32>()
+        .map_err(|e| format!("Failed to parse height '{}': {}", parts[1], e))?;
+
+    Ok((width, height))
+}

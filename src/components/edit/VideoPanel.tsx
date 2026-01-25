@@ -4,12 +4,42 @@ import { VideoComposition, calculateTotalFrames } from "./VideoComposition";
 import { PlaybackControls } from "./PlaybackControls";
 import { usePlaybackStore, FPS } from "../../stores/usePlaybackStore";
 import { useTimelineSegments } from "../../hooks/useTimelineSegments";
+import { useSourcesStore } from "../../stores/useSourcesStore";
 import { getVideoUrl } from "../../lib/assetUrl";
 
 export function VideoPanel() {
   const playerRef = useRef<PlayerRef>(null);
   const segments = useTimelineSegments();
+  const sources = useSourcesStore((s) => s.sources);
   const totalFrames = calculateTotalFrames(segments);
+
+  // Determine aspect ratio based on source dimensions
+  // Use the first source with valid dimensions, default to 16:9 landscape
+  const { compositionWidth, compositionHeight, aspectRatio } = useMemo(() => {
+    const sourceWithDims = sources.find((s) => s.width && s.height);
+    if (sourceWithDims?.width && sourceWithDims?.height) {
+      const isLandscape = sourceWithDims.width >= sourceWithDims.height;
+      if (isLandscape) {
+        return {
+          compositionWidth: 1920,
+          compositionHeight: 1080,
+          aspectRatio: "16/9",
+        };
+      } else {
+        return {
+          compositionWidth: 1080,
+          compositionHeight: 1920,
+          aspectRatio: "9/16",
+        };
+      }
+    }
+    // Default to landscape (16:9) for better compatibility
+    return {
+      compositionWidth: 1920,
+      compositionHeight: 1080,
+      aspectRatio: "16/9",
+    };
+  }, [sources]);
 
   // Build video URLs synchronously using asset protocol
   const videoUrls = useMemo(() => {
@@ -208,9 +238,10 @@ export function VideoPanel() {
         <div
           className="relative"
           style={{
-            aspectRatio: "9/16",
+            aspectRatio,
             height: "100%",
             maxHeight: "100%",
+            maxWidth: "100%",
           }}
         >
           <Player
@@ -219,8 +250,8 @@ export function VideoPanel() {
             inputProps={inputProps}
             durationInFrames={totalFrames}
             fps={FPS}
-            compositionWidth={1080}
-            compositionHeight={1920}
+            compositionWidth={compositionWidth}
+            compositionHeight={compositionHeight}
             style={{
               width: "100%",
               height: "100%",
