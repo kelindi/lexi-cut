@@ -11,35 +11,64 @@ export function VideoPanel() {
   const playerRef = useRef<PlayerRef>(null);
   const segments = useTimelineSegments();
   const sources = useSourcesStore((s) => s.sources);
+  const updateSourceDimensions = useSourcesStore((s) => s.updateSourceDimensions);
   const totalFrames = calculateTotalFrames(segments);
 
-  // Determine aspect ratio based on source dimensions
-  // Use the first source with valid dimensions, default to 16:9 landscape
-  const { compositionWidth, compositionHeight, aspectRatio } = useMemo(() => {
+  // State for detected dimensions when sources don't have them
+  const [detectedDimensions, setDetectedDimensions] = useState<{ width: number; height: number } | null>(null);
+
+  // Check if sources have dimensions
+  const sourceDimensions = useMemo(() => {
     const sourceWithDims = sources.find((s) => s.width && s.height);
     if (sourceWithDims?.width && sourceWithDims?.height) {
-      const isLandscape = sourceWithDims.width >= sourceWithDims.height;
-      if (isLandscape) {
-        return {
-          compositionWidth: 1920,
-          compositionHeight: 1080,
-          aspectRatio: "16/9",
-        };
-      } else {
-        return {
-          compositionWidth: 1080,
-          compositionHeight: 1920,
-          aspectRatio: "9/16",
-        };
-      }
+      return { width: sourceWithDims.width, height: sourceWithDims.height };
     }
-    // Default to landscape (16:9) for better compatibility
-    return {
-      compositionWidth: 1920,
-      compositionHeight: 1080,
-      aspectRatio: "16/9",
-    };
+    return null;
   }, [sources]);
+
+  // Detect dimensions from video metadata if sources don't have them
+  useEffect(() => {
+    if (sourceDimensions || segments.length === 0) return;
+
+    const firstSegment = segments[0];
+    const videoUrl = getVideoUrl(firstSegment.sourcePath);
+
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+
+    video.onloadedmetadata = () => {
+      const { videoWidth, videoHeight } = video;
+      setDetectedDimensions({ width: videoWidth, height: videoHeight });
+      // Persist to store so we don't need to detect again
+      updateSourceDimensions(firstSegment.sourcePath, videoWidth, videoHeight);
+    };
+
+    video.onerror = null;
+
+    video.src = videoUrl;
+
+    return () => {
+      video.onloadedmetadata = null;
+      video.onerror = null;
+      video.src = '';
+    };
+  }, [sourceDimensions, segments, updateSourceDimensions]);
+
+  // Use source dimensions, detected dimensions, or fallback to 16:9
+  const { compositionWidth, compositionHeight } = useMemo(() => {
+    if (sourceDimensions) {
+      return { compositionWidth: sourceDimensions.width, compositionHeight: sourceDimensions.height };
+    }
+    if (detectedDimensions) {
+      return { compositionWidth: detectedDimensions.width, compositionHeight: detectedDimensions.height };
+    }
+    // Default to landscape (16:9)
+    return { compositionWidth: 1920, compositionHeight: 1080 };
+  }, [sourceDimensions, detectedDimensions]);
+
+  // Determine if video is portrait or landscape for CSS sizing strategy
+  const isPortrait = compositionHeight > compositionWidth;
+
 
   // Build video URLs synchronously using asset protocol
   const videoUrls = useMemo(() => {
@@ -233,50 +262,67 @@ export function VideoPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* Video player container - constrained height */}
-      <div className="flex flex-1 min-h-0 items-center justify-center bg-black p-1">
-        <div
-          className="relative"
-          style={{
-            aspectRatio,
-            height: "100%",
-            maxHeight: "100%",
-            maxWidth: "100%",
-          }}
-        >
-          <Player
-            ref={playerRefCallback}
-            component={VideoComposition}
-            inputProps={inputProps}
-            durationInFrames={totalFrames}
-            fps={FPS}
-            compositionWidth={compositionWidth}
-            compositionHeight={compositionHeight}
+      {/* Video player container - absolute positioning ensures proper dimensions */}
+      <div
+        className="relative flex-1 min-h-0"
+        style={{
+          backgroundColor: '#111111',
+          backgroundImage: `
+            radial-gradient(circle, #333333 1px, transparent 1px),
+            radial-gradient(circle, #333333 1px, transparent 1px)
+          `,
+          backgroundSize: '20px 20px',
+          backgroundPosition: '0 0, 10px 10px',
+        }}
+      >
+        <div className="absolute inset-0 flex items-center justify-center p-2">
+          <div
+            className="relative overflow-hidden rounded-lg"
             style={{
-              width: "100%",
-              height: "100%",
+              aspectRatio: `${compositionWidth} / ${compositionHeight}`,
+              maxWidth: '100%',
+              maxHeight: '100%',
+              // For portrait: prioritize height. For landscape: prioritize width
+              width: isPortrait ? 'auto' : '100%',
+              height: isPortrait ? '100%' : 'auto',
+              // Layered shadows create soft blend from video edge into dot grid background
+              boxShadow: '0 0 30px 10px rgba(17,17,17,0.8), 0 0 60px 20px rgba(17,17,17,0.6), 0 0 100px 40px rgba(17,17,17,0.4)',
             }}
-            controls={false}
-            showVolumeControls={false}
-            clickToPlay={false}
-            loop={false}
-            spaceKeyToPlayOrPause={true}
-            bufferStateDelayInMilliseconds={500}
-            hideControlsWhenPointerDoesntMove={false}
-            renderLoading={() => (
-              <div style={{
-                position: "absolute",
-                inset: 0,
-                backgroundColor: "#000",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "#666",
-              }}>
-                Loading...
-              </div>
-            )}
-          />
+          >
+            <Player
+              ref={playerRefCallback}
+              component={VideoComposition}
+              inputProps={inputProps}
+              durationInFrames={totalFrames}
+              fps={FPS}
+              compositionWidth={compositionWidth}
+              compositionHeight={compositionHeight}
+              style={{
+                width: "100%",
+                height: "100%",
+              }}
+              controls={false}
+              showVolumeControls={false}
+              clickToPlay={false}
+              loop={false}
+              spaceKeyToPlayOrPause={true}
+              bufferStateDelayInMilliseconds={500}
+              hideControlsWhenPointerDoesntMove={false}
+              renderLoading={() => (
+                <div style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundColor: "#000",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  color: "#666",
+                }}>
+                  Loading...
+                </div>
+              )}
+            />
+          </div>
         </div>
       </div>
 

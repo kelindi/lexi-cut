@@ -7,6 +7,7 @@ interface SourcesState {
   addSources: (sources: Source[]) => void;
   updateSourceCid: (id: string, cid: string) => void;
   updateSourceDescriptions: (id: string, descriptions: SourceDescription[]) => void;
+  updateSourceDimensions: (path: string, width: number, height: number) => void;
   removeSource: (id: string) => void;
   clearSources: () => void;
 }
@@ -24,6 +25,12 @@ export const useSourcesStore = create<SourcesState>((set) => ({
     set((state) => ({
       sources: state.sources.map((s) =>
         s.id === id ? { ...s, descriptions } : s
+      ),
+    })),
+  updateSourceDimensions: (path, width, height) =>
+    set((state) => ({
+      sources: state.sources.map((s) =>
+        s.path === path ? { ...s, width, height } : s
       ),
     })),
   removeSource: (id) =>
