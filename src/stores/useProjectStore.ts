@@ -65,6 +65,7 @@ interface ProjectState {
   restoreWordsByIds: (sentenceId: string, wordIds: string[]) => void;
   deleteSentencesByIds: (sentenceIds: string[]) => void;
   restoreSentencesByIds: (sentenceIds: string[]) => void;
+  swapSentences: (sentenceIdA: string, sentenceIdB: string) => void;
 
   // Transcriptless tracking
   setTranscriptlessSourceIds: (sourceIds: string[]) => void;
@@ -337,6 +338,23 @@ export const useProjectStore = create<ProjectState>((set) => ({
             idsToRestore.has(entry.sentenceId) ? { ...entry, excluded: false } : entry
           ),
         },
+        isDirty: true,
+      };
+    }),
+
+  // Agent-only: swap two sentences by ID
+  swapSentences: (sentenceIdA: string, sentenceIdB: string) =>
+    set((state) => {
+      const indexA = state.timeline.entries.findIndex((e) => e.sentenceId === sentenceIdA);
+      const indexB = state.timeline.entries.findIndex((e) => e.sentenceId === sentenceIdB);
+
+      if (indexA === -1 || indexB === -1) return state;
+
+      const newEntries = [...state.timeline.entries];
+      [newEntries[indexA], newEntries[indexB]] = [newEntries[indexB], newEntries[indexA]];
+
+      return {
+        timeline: { ...state.timeline, entries: newEntries },
         isDirty: true,
       };
     }),

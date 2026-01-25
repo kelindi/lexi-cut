@@ -9,18 +9,22 @@ import { useProjectStore, getWordsWithIds } from "../../stores/useProjectStore";
  * 1. Select a sentence ID from the dropdown
  * 2. Click on words to add their IDs to the input
  * 3. Click Delete or Restore to test the actions
+ * 4. Use the swap section to switch two sentences
  */
 export function DebugEditPanel() {
   const [selectedSentenceId, setSelectedSentenceId] = useState<string>("");
   const [wordIdsInput, setWordIdsInput] = useState<string>("");
   const [lastResult, setLastResult] = useState<string>("");
   const [showAllWords, setShowAllWords] = useState(false);
+  const [swapSentenceA, setSwapSentenceA] = useState<string>("");
+  const [swapSentenceB, setSwapSentenceB] = useState<string>("");
 
   const timeline = useProjectStore((s) => s.timeline);
   const sentences = useProjectStore((s) => s.sentences);
   const words = useProjectStore((s) => s.words);
   const deleteWordsByIds = useProjectStore((s) => s.deleteWordsByIds);
   const restoreWordsByIds = useProjectStore((s) => s.restoreWordsByIds);
+  const swapSentences = useProjectStore((s) => s.swapSentences);
 
   // Get the selected sentence and its words
   const selectedSentence = sentences.find((s) => s.sentenceId === selectedSentenceId);
@@ -158,6 +162,98 @@ export function DebugEditPanel() {
           className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded transition-colors"
         >
           Restore Words
+        </button>
+      </div>
+
+      {/* Swap Sentences Section */}
+      <div className="border-t border-neutral-700 pt-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <label className="text-xs text-neutral-400 font-medium">
+            Swap Sentences (click to select A, then B)
+          </label>
+          {(swapSentenceA || swapSentenceB) && (
+            <button
+              onClick={() => {
+                setSwapSentenceA("");
+                setSwapSentenceB("");
+              }}
+              className="px-2 py-0.5 text-xs bg-neutral-700 hover:bg-neutral-600 text-neutral-300 rounded"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Clickable sentence list */}
+        <div className="space-y-1 max-h-48 overflow-y-auto bg-neutral-800 rounded p-2">
+          {timeline.entries.map((entry, idx) => {
+            const sentence = sentences.find((s) => s.sentenceId === entry.sentenceId);
+            const preview = sentence?.text.slice(0, 50) ?? "";
+            const isA = swapSentenceA === entry.sentenceId;
+            const isB = swapSentenceB === entry.sentenceId;
+
+            return (
+              <button
+                key={entry.sentenceId}
+                onClick={() => {
+                  if (isA) {
+                    setSwapSentenceA("");
+                  } else if (isB) {
+                    setSwapSentenceB("");
+                  } else if (!swapSentenceA) {
+                    setSwapSentenceA(entry.sentenceId);
+                  } else if (!swapSentenceB) {
+                    setSwapSentenceB(entry.sentenceId);
+                  }
+                }}
+                className={`w-full text-left px-2 py-1.5 rounded text-xs font-mono transition-colors flex items-center gap-2 ${
+                  isA
+                    ? "bg-purple-600/30 text-purple-200 ring-1 ring-purple-500"
+                    : isB
+                      ? "bg-blue-600/30 text-blue-200 ring-1 ring-blue-500"
+                      : entry.excluded
+                        ? "bg-neutral-700/50 text-neutral-500 line-through"
+                        : "bg-neutral-700 text-neutral-200 hover:bg-neutral-600"
+                }`}
+              >
+                <span className="text-neutral-500 w-6">{idx + 1}.</span>
+                {isA && <span className="text-purple-400 font-bold">A</span>}
+                {isB && <span className="text-blue-400 font-bold">B</span>}
+                <span className="truncate flex-1">{preview}...</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Selection indicator */}
+        <div className="flex gap-2 text-xs">
+          <div className={`flex-1 px-2 py-1 rounded ${swapSentenceA ? "bg-purple-600/20 text-purple-300" : "bg-neutral-800 text-neutral-500"}`}>
+            A: {swapSentenceA || "(click to select)"}
+          </div>
+          <div className={`flex-1 px-2 py-1 rounded ${swapSentenceB ? "bg-blue-600/20 text-blue-300" : "bg-neutral-800 text-neutral-500"}`}>
+            B: {swapSentenceB || "(click to select)"}
+          </div>
+        </div>
+
+        <button
+          onClick={() => {
+            if (!swapSentenceA || !swapSentenceB) {
+              setLastResult("Error: Select both sentences to swap");
+              return;
+            }
+            swapSentences(swapSentenceA, swapSentenceB);
+            setLastResult(`Swapped: ${swapSentenceA} ↔ ${swapSentenceB}`);
+            setSwapSentenceA("");
+            setSwapSentenceB("");
+          }}
+          disabled={!swapSentenceA || !swapSentenceB}
+          className={`w-full px-3 py-1.5 text-white text-sm font-medium rounded transition-colors ${
+            swapSentenceA && swapSentenceB
+              ? "bg-purple-600 hover:bg-purple-500"
+              : "bg-neutral-700 text-neutral-500 cursor-not-allowed"
+          }`}
+        >
+          Swap A ↔ B
         </button>
       </div>
 
