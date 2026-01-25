@@ -111,24 +111,6 @@ export interface Timeline {
   entries: TimelineEntry[];
 }
 
-export interface DuplicateGroup {
-  phrase: string;
-  groupIds: string[];
-  recommendedGroupId: string;
-  reason: string;
-}
-
-export interface AssemblyCutResult {
-  orderedSegmentIds: string[];
-  duplicates: DuplicateGroup[];
-  narrativeSummary: string;
-}
-
-export interface AssemblyCutRequest {
-  segmentGroups: SegmentGroup[];
-  sourceNames: Record<string, string>;
-}
-
 // --- Gemini Video Understanding API Types ---
 
 export interface GeminiFileUploadResponse {
