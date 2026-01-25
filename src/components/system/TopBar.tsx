@@ -1,19 +1,27 @@
 import { useState } from "react";
 import { CaretLeft, FloppyDisk, Circle } from "@phosphor-icons/react";
 import { useProjectStore } from "../../stores/useProjectStore";
+import { useSourcesStore } from "../../stores/useSourcesStore";
 
 export function TopBar() {
   const projectName = useProjectStore((s) => s.projectName);
   const closeProject = useProjectStore((s) => s.closeProject);
   const isDirty = useProjectStore((s) => s.isDirty);
-  const markClean = useProjectStore((s) => s.markClean);
+  const saveProject = useProjectStore((s) => s.saveProject);
+  const sources = useSourcesStore((s) => s.sources);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSave = () => {
-    if (!isDirty) return;
-    // TODO: Implement actual project save to disk
-    console.log("Saving project...");
-    markClean();
+  const handleSave = async () => {
+    if (!isDirty || isSaving) return;
+    setIsSaving(true);
+    try {
+      await saveProject(sources);
+    } catch (error) {
+      console.error("Failed to save project:", error);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleBack = () => {
@@ -24,8 +32,8 @@ export function TopBar() {
     }
   };
 
-  const handleSaveAndExit = () => {
-    handleSave();
+  const handleSaveAndExit = async () => {
+    await handleSave();
     closeProject();
   };
 
@@ -50,15 +58,15 @@ export function TopBar() {
         </div>
         <button
           onClick={handleSave}
-          disabled={!isDirty}
+          disabled={!isDirty || isSaving}
           className={`flex items-center gap-2 rounded-md px-3 py-1.5 transition-colors ${
-            isDirty
+            isDirty && !isSaving
               ? "text-white hover:bg-white/10"
               : "text-white/30 cursor-not-allowed"
           }`}
         >
           <FloppyDisk size={18} />
-          <span className="text-sm">Save</span>
+          <span className="text-sm">{isSaving ? "Saving..." : "Save"}</span>
         </button>
       </header>
 

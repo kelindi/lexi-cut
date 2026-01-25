@@ -5,7 +5,9 @@ import type {
   Sentence,
   ProcessingPhase,
   ProcessingProgress,
+  Source,
 } from "../types";
+import { saveProjectData, loadProjectData, type ProjectData } from "../api/projects";
 
 interface ProjectState {
   // Project identity
@@ -46,6 +48,8 @@ interface ProjectState {
   closeProject: () => void;
   markDirty: () => void;
   markClean: () => void;
+  saveProject: (sources: Source[]) => Promise<void>;
+  loadProject: (projectId: string) => Promise<ProjectData | null>;
 
   // Actions
   setWords: (words: Word[]) => void;
@@ -112,7 +116,53 @@ export const useProjectStore = create<ProjectState>((set) => ({
   markDirty: () => set({ isDirty: true }),
   markClean: () => set({ isDirty: false, lastSavedAt: Date.now() }),
 
-  setSegments: (segments) => set({ segments, isDirty: true }),
+  saveProject: async (sources: Source[]) => {
+    const state = useProjectStore.getState();
+    if (!state.projectId || !state.projectName) {
+      throw new Error("No active project");
+    }
+
+    const data: ProjectData = {
+      id: state.projectId,
+      name: state.projectName,
+      sources,
+      words: state.words,
+      sentences: state.sentences,
+      segmentGroups: state.segmentGroups,
+      orderedSentenceIds: state.orderedSentenceIds,
+      excludedSentenceIds: state.excludedSentenceIds,
+      excludedWordIds: state.excludedWordIds,
+      transcriptlessSourceIds: state.transcriptlessSourceIds,
+      savedAt: Date.now(),
+    };
+
+    await saveProjectData(data);
+    set({ isDirty: false, lastSavedAt: Date.now() });
+  },
+
+  loadProject: async (projectId: string) => {
+    const data = await loadProjectData(projectId);
+    if (data) {
+      set({
+        projectId: data.id,
+        projectName: data.name,
+        words: data.words,
+        sentences: data.sentences,
+        segmentGroups: data.segmentGroups,
+        orderedSentenceIds: data.orderedSentenceIds,
+        excludedSentenceIds: data.excludedSentenceIds,
+        excludedWordIds: data.excludedWordIds,
+        transcriptlessSourceIds: data.transcriptlessSourceIds,
+        orderedGroupIds: data.segmentGroups.map((g) => g.groupId),
+        excludedGroupIds: [],
+        isDirty: false,
+        lastSavedAt: data.savedAt,
+        phase: "ready",
+      });
+    }
+    return data;
+  },
+
   setWords: (words) => set({ words, isDirty: true }),
 
   setSegmentGroups: (groups) =>
