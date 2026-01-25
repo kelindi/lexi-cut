@@ -2,9 +2,9 @@ import { useEffect, useCallback, useRef } from "react";
 import { Panel, Group as PanelGroup, Separator } from "react-resizable-panels";
 import { TranscriptPanel } from "../components/edit/TranscriptPanel";
 import { VideoPanel } from "../components/edit/VideoPanel";
-import { Timeline } from "../components/edit/Timeline";
 import { ProcessingView } from "../components/edit/ProcessingView";
 import { DebugEditPanel } from "../components/edit/DebugEditPanel";
+import { ConversationInput } from "../components/edit/ConversationInput";
 import { useSourcesStore } from "../stores/useSourcesStore";
 import { useProjectStore } from "../stores/useProjectStore";
 import { runPipeline } from "../api/processingPipeline";
@@ -166,9 +166,14 @@ export function EditPage() {
 
         <ResizeHandle orientation="vertical" />
 
-        {/* Timeline (bottom) */}
-        <Panel defaultSize={30} minSize={10}>
-          <Timeline />
+        {/* Conversation input (bottom) */}
+        <Panel defaultSize={20} minSize={10}>
+          <ConversationInput
+            onSubmit={(message) => {
+              console.log("User message:", message);
+              // TODO: Handle the message (e.g., send to AI agent)
+            }}
+          />
         </Panel>
       </PanelGroup>
     </main>
